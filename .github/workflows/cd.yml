@@ -1,0 +1,89 @@
+name: CD & Production Deployment
+
+on:
+  push:
+    branches: [main] # Only runs when PRs are merged to main
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+env:
+  CI: true
+  SKIP_ENV_VALIDATION: "true" # Prevents T3-Env from crashing during storefront tasks  
+
+jobs:
+  deploy-backend:
+    name: Deploy Medusa Backend & Run Migrations
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+
+      - name: Install Monorepo Dependencies
+        run: npm ci
+
+      - name: Run Neon Database Migrations
+        run: |
+          npm run build --workspace=apps/backend
+          npx medusa migration run
+        working-directory: ./apps/backend
+
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          JWT_SECRET: ${{ secrets.MEDUSA_JWT_SECRET }}
+          COOKIE_SECRET: ${{ secrets.MEDUSA_COOKIE_SECRET }}
+          AUTH_MFA_ENCRYPTION_KEY: ${{ secrets.AUTH_MFA_ENCRYPTION_KEY }}
+
+ # 2. Trigger Render to rebuild and deploy the Medusa backend
+  deploy-backend-render:
+    name: Trigger Render Backend Deploy
+    needs: deploy-backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Render Deploy Hook
+        run: |
+          curl -X POST -f "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+
+      - name: Wait for Render Backend to be Live & Healthy
+        # Loops a health check for up to 5 minutes so Vercel doesn't build against a dead/restarting backend
+        run: |
+          echo "Waiting for backend to finish deploying on Render..."
+          TIMEOUT=300
+          INTERVAL=15
+          ELAPSED=0    
+            until curl -s -f "${{ secrets.MEDUSA_BACKEND_URL }}/health" > /dev/null; do
+            if [ $ELAPSED -ge $TIMEOUT ]; then
+              echo "Timed out waiting for backend to become healthy."
+              exit 1
+            fi
+            echo "Backend not ready yet. Retrying in ${INTERVAL}s..."
+            sleep $INTERVAL
+            ELAPSED=$((ELAPSED + INTERVAL))
+          done
+          echo "Backend is live and healthy!"
+        env:
+           MEDUSA_BACKEND_URL: ${{ secrets.MEDUSA_BACKEND_URL }} # Add your public Render URL to GitHub secrets
+
+          
+  # 3. Trigger Vercel to rebuild and deploy the Next.js storefront
+  deploy-storefront-vercel:
+    name: Trigger Vercel Storefront Deploy
+    needs: deploy-backend-render
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Vercel Deploy Hook
+        run: |
+          curl -X POST -f "${{ secrets.VERCEL_DEPLOY_HOOK_URL }}"   
+          
+ # VERCEL_DEPLOY_HOOK_URL & RENDER_DEPLOY_HOOK_URL
+#  These belong exclusively in GitHub Repository Secrets. GitHub Actions injects them safely into your CI/CD workflow at runtime without exposing them in your codebase. 

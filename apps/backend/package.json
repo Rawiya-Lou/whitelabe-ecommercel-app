@@ -1,0 +1,63 @@
+{
+  "name": "@dtc/backend",
+  "version": "0.0.1",
+  "description": "A starter for Medusa projects.",
+  "author": "Medusa (https://medusajs.com)",
+  "license": "MIT",
+  "keywords": [
+    "sqlite",
+    "postgres",
+    "typescript",
+    "ecommerce",
+    "headless",
+    "medusa"
+  ],
+  "scripts": {
+    "build": "medusa build",
+    "start": "medusa start",
+    "dev": "medusa develop",
+    "lint": "medusa lint",
+    "typecheck": "tsc --noEmit",
+    "test:integration:http": "cross-env TEST_TYPE=integration:http vitest run --poolOptions.threads.singleThread --no-file-parallelism --config ./vitest.config.mts",
+    "test:integration:modules": "cross-env TEST_TYPE=integration:modules vitest run --poolOptions.threads.singleThread --no-file-parallelism --config ./vitest.config.mts",
+    "test:unit": "cross-env TEST_TYPE=unit vitest run --silent --config ./vitest.config.mts",
+    "test": "vitest run --config ./vitest.config.mts",
+    "test:watch": "vitest --config ./vitest.config.mts"
+  },
+  "dependencies": {
+    "@medusajs/admin-sdk": "2.19.0",
+    "@medusajs/admin-shared": "2.19.0",
+    "@medusajs/caching": "2.19.0",
+    "@medusajs/cli": "2.19.0",
+    "@medusajs/dashboard": "2.19.0",
+    "@medusajs/draft-order": "2.19.0",
+    "@medusajs/framework": "2.19.0",
+    "@medusajs/medusa": "2.19.0",
+    "@medusajs/ui": "4.2.1",
+    "@tanstack/react-query": "5.64.2",
+    "react-i18next": "13.5.0",
+    "react-router-dom": "7.18.2",
+    "zod": "4.2.0"
+  },
+  "devDependencies": {
+    "@medusajs/test-utils": "2.19.0",
+    "@swc/core": "^1.7.28",
+    "@swc/jest": "^0.2.36",
+    "@types/node": "^20.12.11",
+    "@types/react": "^18.3.2",
+    "@types/react-dom": "^18.2.25",
+    "@vitest/coverage-v8": "^4.1.11",
+    "prop-types": "^15.8.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.2",
+    "vite": "^7.3.6",
+    "vitest": "^4.1.11",
+    "yalc": "^1.0.0-pre.53"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "packageManager": "npm@11.19.1"
+}

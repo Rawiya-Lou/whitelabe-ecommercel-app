@@ -1,0 +1,144 @@
+name: CI & Quality Control
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: true
+  SKIP_ENV_VALIDATION: "true" # Bypasses T3 Env runtime failures during CI builds
+  DATABASE_URL: "postgres://postgres:postgres@localhost:5432/ci_test_db"
+  JWT_SECRET: "super-secret-ci-jwt-token-string-32-chars-long"
+  COOKIE_SECRET: "super-secret-ci-cookie-token-string-32-chars-long"
+  NEXT_PUBLIC_MEDUSA_BACKEND_URL: "http://localhost:9000"
+  NEXT_PUBLIC_SANITY_PROJECT_ID: "ci_sanity_project_id"
+  NEXT_PUBLIC_SANITY_DATASET: "production"
+
+jobs:
+  # JOB 1: Detect Changed Files (Path Filtering)
+
+  changes:
+    name: Detect Changed Applications
+    runs-on: ubuntu-latest
+    outputs:
+      storefront: ${{ steps.filter.outputs.storefront == 'true' }}
+      backend: ${{ steps.filter.outputs.backend == 'true' }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Filter Changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            storefront:
+              - 'apps/storefront/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - '.github/workflows/ci.yml'
+            backend:
+              - 'apps/backend/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - '.github/workflows/ci.yml'
+
+  # JOB 2: Next.js Storefront Verification
+
+  storefront-ci:
+    name: Storefront (Next.js) - Quality & Build
+    needs: changes
+    if: ${{ needs.changes.outputs.storefront == 'true' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js (Node 22 LTS + NPM Cache)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+
+      - name: Install Monorepo Dependencies
+        run: npm ci
+
+      # Next.js Build Artifact Caching
+      - name: Restore / Save Next.js Build Cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/apps/storefront/.next/cache
+          # Generate new cache key whenever source files or dependencies change
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('apps/storefront/package-lock.json') }}-${{ hashFiles('apps/storefront/app/**') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ hashFiles('apps/storefront/package-lock.json') }}-
+
+      - name: Typecheck (TypeScript)
+        run: npm run typecheck --workspace=apps/storefront --if-present || npx tsc --project apps/storefront/tsconfig.json --noEmit
+
+      - name: Lint (ESLint)
+        run: |
+          cd apps/storefront
+          npx eslint . --max-warnings 0
+      - name: Unit Tests (Vitest)
+        run: npm run test --workspace=apps/storefront --if-present
+
+      - name: Production Build
+        run: npm run build --workspace=apps/storefront
+
+  # JOB 3: Medusa v2 Backend Verification
+
+  backend-ci:
+    name: Backend (Medusa v2) - Quality & Build
+    needs: changes
+    if: ${{ needs.changes.outputs.backend == 'true' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js (Node 22 LTS + NPM Cache)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+
+      - name: Install Backend Dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck --workspace=apps/backend --if-present || npx tsc --project apps/backend/tsconfig.json --noEmit
+
+      - name: Unit Tests (Vitest)
+        run: npm run test --workspace=apps/backend --if-present
+
+      - name: Engine Build
+        run: npm run build --workspace=apps/backend --if-present
+
+  # JOB 4: Security & Vulnerability Audit
+
+  security-audit:
+    name: Dependency Security Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Audit Monorepo Dependencies
+        run: npm audit --audit-level=high --omit=dev
+
+        continue-on-error: true
