@@ -104,16 +104,11 @@ jobs:
           JWT_SECRET: ${{ env.JWT_SECRET }}
           COOKIE_SECRET: ${{ env.COOKIE_SECRET }}
         run: |
-          # Apply schema migrations to your dedicated cloud database instance
           npx medusa db:migrate
-
-          # Spin up the Medusa core in the background
           npx medusa start > medusa-backend.log 2>&1 &
-
-          # Give Medusa v2 10 seconds to establish ports and bindings
-          sleep 10
+          npx wait-on http://localhost:9000/health --timeout 60000
       - name: Run Storefront Integration Tests (via Turbo)
-      
+
         env:
           NEXT_PUBLIC_MEDUSA_BACKEND_URL: "http://localhost:9000"
           NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: "pk_test_ci_placeholder_key"
