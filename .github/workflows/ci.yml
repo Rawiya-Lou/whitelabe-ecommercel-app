@@ -90,6 +90,7 @@ jobs:
 
       # 2. RUN MEDUSA BACKEND TEMPORARILY WITH NEON SECRETS
       - name: Setup Medusa Database & Start Server
+        working-directory: ./apps/backend
         env:
           # Pulling credentials securely from your GitHub Repository Secrets
           DATABASE_URL: ${{ secrets.NEON_CI_DATABASE_URL }}
@@ -136,13 +137,13 @@ jobs:
         run: npm ci
 
       - name: Typecheck
-        run: npx turbo run typecheck --filter=backend
+        run: npx turbo run typecheck --filter=@dtc/backend
 
       - name: Unit Tests (Vitest)
-        run: npx turbo run test --filter=backend
+        run: npx turbo run test --filter=@dtc/backend
 
       - name: Engine Build
-        run: npx turbo run build --filter=backend
+        run: npx turbo run build --filter=@dtc/backend
 
   # JOB 4: Security & Vulnerability Audit
 
