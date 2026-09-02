@@ -96,7 +96,7 @@ jobs:
 
       # 2. RUN MEDUSA BACKEND TEMPORARILY WITH NEON SECRETS
       - name: Setup Medusa Database & Start Server
-        working-directory: ./apps/storefront
+        working-directory: ./apps/backend
         env:
           # Pulling credentials securely from your GitHub Repository Secrets
           DATABASE_URL: ${{ secrets.NEON_CI_DATABASE_URL }}
