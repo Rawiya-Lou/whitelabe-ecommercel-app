@@ -30,6 +30,7 @@ export default defineConfig({
           environment: "jsdom",
           env: {
             NODE_ENV: "test",
+            SKIP_ENV_VALIDATION: "true",
           },
           include: ["app/**/__tests__/**/*.test.{ts,tsx}"],
           exclude: [
@@ -48,6 +49,7 @@ export default defineConfig({
           environment: "node",
           env: {
             NODE_ENV: "test",
+            SKIP_ENV_VALIDATION: "true",
           },
           include: ["app/**/__tests__/**/*.integration.test.ts"],
           exclude: ["**/node_modules/**", "**/dist/**", "**/.next/**"],
