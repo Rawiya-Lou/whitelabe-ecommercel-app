@@ -30,19 +30,25 @@ jobs:
 
       - name: Install Monorepo Dependencies
         run: npm ci
-
-      - name: Run Neon Database Migrations
-        run: |
-          npm medusa build
-          npx medusa db:migrate
+      - name: Build Medusa application
         working-directory: ./apps/backend
+        run: npx medusa build 
 
-        env:
+      - name: Install production dependencies
+        working-directory: ./apps/backend/.medusa/server
+
+        run: npm install
+
+  
+
+  
+
+      - name: Run migrations
+        working-directory: ./apps/backend/.medusa/server
+
+        env: 
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          REDIS_URL: ${{ secrets.REDIS_URL }}
-          JWT_SECRET: ${{ secrets.MEDUSA_JWT_SECRET }}
-          COOKIE_SECRET: ${{ secrets.MEDUSA_COOKIE_SECRET }}
-          AUTH_MFA_ENCRYPTION_KEY: ${{ secrets.AUTH_MFA_ENCRYPTION_KEY }}
+        run: npm predeploy
 
  # 2. Trigger Render to rebuild and deploy the Medusa backend
   deploy-backend-render:

@@ -13,7 +13,9 @@
     "medusa"
   ],
   "scripts": {
-    "build": "medusa build",
+    "postbuild": "cp -r src/data .medusa/server/src/data",
+    "build": "medusa build && npm run postbuild",
+    "predeploy": "medusa db:migrate",
     "start": "medusa start",
     "dev": "medusa develop",
     "lint": "medusa lint",

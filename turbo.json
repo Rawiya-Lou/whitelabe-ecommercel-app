@@ -1,5 +1,13 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalEnv": [
+    "NODE_ENV",
+    "DATABASE_URL",
+    "REDIS_URL",
+    "JWT_SECRET",
+    "COOKIE_SECRET",
+    "AUTH_MFA_ENCRYPTION_KEY"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
@@ -24,6 +32,10 @@
     },
     "seed": {
       "outputs": []
+    },
+
+    "db:migrate": {
+      "cache": false
     }
   }
 }
