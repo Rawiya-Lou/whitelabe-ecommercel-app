@@ -36,6 +36,10 @@
 
     "db:migrate": {
       "cache": false
+    },
+    "test:unit": { "cache": true },
+    "test:integration": { 
+      "cache": false
     }
   }
 }
