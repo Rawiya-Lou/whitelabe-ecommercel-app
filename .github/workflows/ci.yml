@@ -81,11 +81,17 @@ jobs:
             ${{ runner.os }}-nextjs-${{ hashFiles('apps/storefront/package-lock.json') }}-
 
       - name: Typecheck (TypeScript)
+        working-directory: ./apps/backend
+
         run: npx turbo run typecheck --filter=storefront
 
       - name: Lint (ESLint)
+        working-directory: ./apps/backend
+
         run: npx turbo run lint --filter=storefront
       # - name: Run Storefront Unit Tests
+      #   working-directory: ./apps/backend
+
       #   run: npx turbo run test:unit --filter=storefront
 
       # 2. RUN MEDUSA BACKEND TEMPORARILY WITH NEON SECRETS
@@ -113,6 +119,8 @@ jobs:
         run: npx turbo run test:integration --filter=storefront
 
       - name: Production Build
+        working-directory: ./apps/backend
+
         run: npx turbo run build --filter=storefront
 
   # JOB 3: Medusa v2 Backend Verification
@@ -137,12 +145,18 @@ jobs:
         run: npm ci
 
       - name: Typecheck
+        working-directory: ./apps/backend
+
         run: npx turbo run typecheck --filter=@dtc/backend
 
       - name: Unit Tests (Vitest)
+        working-directory: ./apps/backend
+
         run: npx turbo run test --filter=@dtc/backend
 
       - name: Engine Build
+        working-directory: ./apps/backend
+
         run: npx turbo run build --filter=@dtc/backend
 
   # JOB 4: Security & Vulnerability Audit

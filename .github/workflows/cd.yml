@@ -48,7 +48,7 @@ jobs:
 
         env: 
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: npm predeploy
+        run: npx medusa db:migrate
 
  # 2. Trigger Render to rebuild and deploy the Medusa backend
   deploy-backend-render:
