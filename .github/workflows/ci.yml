@@ -81,22 +81,22 @@ jobs:
             ${{ runner.os }}-nextjs-${{ hashFiles('apps/storefront/package-lock.json') }}-
 
       - name: Typecheck (TypeScript)
-        working-directory: ./apps/backend
+        working-directory: ./apps/storefront
 
         run: npx turbo run typecheck --filter=storefront
 
       - name: Lint (ESLint)
-        working-directory: ./apps/backend
+        working-directory: ./apps/storefront
 
         run: npx turbo run lint --filter=storefront
       # - name: Run Storefront Unit Tests
-      #   working-directory: ./apps/backend
+        # working-directory: ./apps/storefront
 
       #   run: npx turbo run test:unit --filter=storefront
 
       # 2. RUN MEDUSA BACKEND TEMPORARILY WITH NEON SECRETS
       - name: Setup Medusa Database & Start Server
-        working-directory: ./apps/backend
+        working-directory: ./apps/storefront
         env:
           # Pulling credentials securely from your GitHub Repository Secrets
           DATABASE_URL: ${{ secrets.NEON_CI_DATABASE_URL }}
@@ -106,7 +106,7 @@ jobs:
         run: |
           npx medusa db:migrate
           npx medusa start > medusa-backend.log 2>&1 &
-          npx wait-on http://localhost:9000/health --timeout 60000
+          npx wait-on http://localhost:9000/health --timeout 120000
       - name: Run Storefront Integration Tests (via Turbo)
 
         env:
@@ -115,7 +115,7 @@ jobs:
         run: npx turbo run test:integration --filter=storefront
 
       - name: Production Build
-        working-directory: ./apps/backend
+        working-directory: ./apps/storefront
 
         run: npx turbo run build --filter=storefront
 
