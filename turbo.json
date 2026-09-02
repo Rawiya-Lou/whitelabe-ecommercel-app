@@ -12,6 +12,10 @@
     "start": {
       "dependsOn": ["^build"]
     },
+
+    "typecheck": {
+      "cache": true
+    },
     "lint": {
       "outputs": []
     },

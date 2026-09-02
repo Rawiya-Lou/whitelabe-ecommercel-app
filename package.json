@@ -10,9 +10,10 @@
     "build": "turbo build",
     "start": "turbo start",
     "typecheck": "turbo typecheck",
-
     "lint": "turbo lint",
     "test": "turbo test",
+    "test:unit": "turbo test --filter=storefront" ,
+    "test:integration": "turbo test --filter=storefront",
     "backend:seed": "turbo seed --filter=@dtc/backend",
     "backend:dev": "turbo dev --filter=@dtc/backend",
     "storefront:dev": "turbo dev --filter=storefront"

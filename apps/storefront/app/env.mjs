@@ -27,7 +27,14 @@ export const env = createEnv({
    * Next.js requires explicit object mapping due to how Webpack handles dynamic lookups.
    */
   experimental__runtimeEnv: {
+    // Shared / Server variables must be mapped here too
     NODE_ENV: process.env.NODE_ENV,
+    MEDUSA_BACKEND_URL: process.env.MEDUSA_BACKEND_URL,
+    SANITY_API_READ_TOKEN: process.env.SANITY_API_READ_TOKEN,
+    UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
+    UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN,
+
+    // Client variables
     NEXT_PUBLIC_MEDUSA_BACKEND_URL: process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL,
     NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY:
       process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY,

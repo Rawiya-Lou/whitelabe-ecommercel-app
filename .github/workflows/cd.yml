@@ -33,8 +33,8 @@ jobs:
 
       - name: Run Neon Database Migrations
         run: |
-          npm run build --workspace=apps/backend
-          npx medusa migration run
+          npm medusa build
+          npx medusa db:migrate
         working-directory: ./apps/backend
 
         env:

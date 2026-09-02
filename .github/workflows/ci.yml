@@ -81,17 +81,38 @@ jobs:
             ${{ runner.os }}-nextjs-${{ hashFiles('apps/storefront/package-lock.json') }}-
 
       - name: Typecheck (TypeScript)
-        run: npm run typecheck --workspace=apps/storefront --if-present || npx tsc --project apps/storefront/tsconfig.json --noEmit
+        run: npx turbo run typecheck --filter=storefront
 
       - name: Lint (ESLint)
+        run: npx turbo run lint --filter=storefront
+      # - name: Run Storefront Unit Tests
+      #   run: npx turbo run test:unit --filter=storefront
+
+      # 2. RUN MEDUSA BACKEND TEMPORARILY WITH NEON SECRETS
+      - name: Setup Medusa Database & Start Server
+        env:
+          # Pulling credentials securely from your GitHub Repository Secrets
+          DATABASE_URL: ${{ secrets.NEON_CI_DATABASE_URL }}
+          REDIS_URL: ${{ secrets.UPSTASH_CI_REDIS_URL }}
+          JWT_SECRET: ${{ env.JWT_SECRET }}
+          COOKIE_SECRET: ${{ env.COOKIE_SECRET }}
         run: |
-          cd apps/storefront
-          npx eslint . --max-warnings 0
-      - name: Unit Tests (Vitest)
-        run: npm run test --workspace=apps/storefront --if-present
+          # Apply schema migrations to your dedicated cloud database instance
+          npx medusa db:migrate
+
+          # Spin up the Medusa core in the background
+          npx medusa start > medusa-backend.log 2>&1 &
+
+          # Give Medusa v2 10 seconds to establish ports and bindings
+          sleep 10
+      - name: Run Storefront Integration Tests (via Turbo)
+        env:
+          NEXT_PUBLIC_MEDUSA_BACKEND_URL: "http://localhost:9000"
+          NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: "pk_test_ci_placeholder_key"
+        run: npx turbo run test:integration --filter=storefront
 
       - name: Production Build
-        run: npm run build --workspace=apps/storefront
+        run: npx turbo run build --filter=storefront
 
   # JOB 3: Medusa v2 Backend Verification
 
@@ -115,13 +136,13 @@ jobs:
         run: npm ci
 
       - name: Typecheck
-        run: npm run typecheck --workspace=apps/backend --if-present || npx tsc --project apps/backend/tsconfig.json --noEmit
+        run: npx turbo run typecheck --filter=backend
 
       - name: Unit Tests (Vitest)
-        run: npm run test --workspace=apps/backend --if-present
+        run: npx turbo run test --filter=backend
 
       - name: Engine Build
-        run: npm run build --workspace=apps/backend --if-present
+        run: npx turbo run build --filter=backend
 
   # JOB 4: Security & Vulnerability Audit
 
