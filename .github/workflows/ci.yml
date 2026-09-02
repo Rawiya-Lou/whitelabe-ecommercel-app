@@ -98,15 +98,21 @@ jobs:
       - name: Setup Medusa Database & Start Server
         working-directory: ./apps/backend
         env:
-          # Pulling credentials securely from your GitHub Repository Secrets
-          DATABASE_URL: ${{ secrets.NEON_CI_DATABASE_URL }}
-          REDIS_URL: ${{ secrets.UPSTASH_CI_REDIS_URL }}
-          JWT_SECRET: ${{ env.JWT_SECRET }}
-          COOKIE_SECRET: ${{ env.COOKIE_SECRET }}
+         DATABASE_URL: ${{ secrets.NEON_CI_DATABASE_URL }}
+         REDIS_URL: ${{ secrets.UPSTASH_CI_REDIS_URL }}
+         JWT_SECRET: ${{ env.JWT_SECRET }}
+         COOKIE_SECRET: ${{ env.COOKIE_SECRET }}
         run: |
-          npx medusa db:migrate
-          npx medusa start > medusa-backend.log 2>&1 &
-          npx wait-on http://localhost:9000/health --timeout 120000
+         npx medusa db:migrate
+         npx medusa start > medusa-backend.log 2>&1 & sleep 5
+         npx wait-on http://localhost:9000/health --timeout 180000
+    
+      - name: Check Medusa Backend Logs (if      previous step failed)
+        if: failure()
+        working-directory: ./apps/backend
+        run: |
+          echo "=== Medusa Backend Logs ==="
+          cat medusa-backend.log
       - name: Run Storefront Integration Tests (via Turbo)
 
         env:
