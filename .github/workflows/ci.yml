@@ -35,7 +35,7 @@ jobs:
 
       - name: Filter Changes
         id: filter
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         with:
           filters: |
             storefront:
@@ -125,7 +125,7 @@ jobs:
 
         env:
           NEXT_PUBLIC_MEDUSA_BACKEND_URL: "http://localhost:9000"
-          NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: "pk_test_ci_placeholder_key"
+          NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY}}
         run: npx turbo run test:integration --filter=storefront
 
       - name: Production Build
