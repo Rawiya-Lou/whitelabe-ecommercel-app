@@ -16,6 +16,9 @@ describe('Next.js to Medusa Backend Link Verification', () => {
     });
 
     const data = await response.json();
+    if (response.status !== 200) {
+    console.error('Medusa API Error:', { status: response.status, data });
+  }
 
     // The test passes if Medusa accepts the request and returns a valid product payload list
     expect(response.status).toBe(200);
