@@ -10,8 +10,9 @@ export const env = createEnv({
   server: {
     MEDUSA_BACKEND_URL: z.url().default("http://localhost:9000"),
     SANITY_API_READ_TOKEN: z.string().min(1).optional(),
-    UPSTASH_REDIS_REST_URL: z.url(),
-    UPSTASH_REDIS_REST_TOKEN: z.string().min(1),
+    UPSTASH_REDIS_REST_URL: z.url().optional(),
+    UPSTASH_REDIS_REST_TOKEN: z.string().min(1).optional(),
+    
 
     NODE_ENV: z.enum(["development", "test", "production"]),
   },
@@ -21,6 +22,7 @@ export const env = createEnv({
     NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: z.string().min(1),
     NEXT_PUBLIC_SANITY_PROJECT_ID: z.string().min(1).optional(),
     NEXT_PUBLIC_SANITY_DATASET: z.string().min(1).optional(),
+  
   },
   /**
    * Destructure all environment variables here.

@@ -132,8 +132,11 @@ jobs:
         working-directory: ./apps/storefront
         env: 
           NEXT_PUBLIC_MEDUSA_BACKEND_URL: "http://localhost:9000"
+          NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: ${{secrets.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY}}
           NEXT_PUBLIC_SANITY_PROJECT_ID: ${{secrets.NEXT_PUBLIC_SANITY_PROJECT_ID}}
           NEXT_PUBLIC_SANITY_DATASET: ${{secrets.NEXT_PUBLIC_SANITY_DATASET}}
+          UPSTASH_REDIS_REST_URL: ${{secrets.UPSTASH_REDIS_REST_URL}}
+          UPSTASH_REDIS_REST_TOKEN: ${{secrets.UPSTASH_REDIS_REST_TOKEN}}
 
         run: npx turbo run build --filter=storefront
 
