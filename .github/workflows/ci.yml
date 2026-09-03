@@ -59,10 +59,10 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Setup Node.js (Node 22 LTS + NPM Cache)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v3
         with:
           node-version: 22
           cache: "npm"
@@ -93,6 +93,11 @@ jobs:
         # working-directory: ./apps/storefront
 
       #   run: npx turbo run test:unit --filter=storefront
+
+      - name: Build Medusa backend (includes admin)
+        working-directory: ./apps/backend
+        run: |
+          npm run build
 
       # 2. RUN MEDUSA BACKEND TEMPORARILY WITH NEON SECRETS
       - name: Setup Medusa Database & Start Server

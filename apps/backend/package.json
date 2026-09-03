@@ -13,7 +13,7 @@
     "medusa"
   ],
   "scripts": {
-   "postbuild": "mkdir -p .medusa/server/src && cp -r src/data .medusa/server/src/data 2>/dev/null || true",
+    "postbuild": "node ./scripts/postbuild.mjs",
     "build": "medusa build && npm run postbuild",
     "predeploy": "medusa db:migrate",
     "start": "medusa start",
