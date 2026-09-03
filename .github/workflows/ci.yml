@@ -94,7 +94,7 @@ jobs:
 
       #   run: npx turbo run test:unit --filter=storefront
 
-      - name: Build Medusa backend (includes admin)
+      - name: Build Medusa backend
         working-directory: ./apps/backend
         env:  
           MEDUSA_ADMIN_DASHBOARD_DISABLED: "true"
