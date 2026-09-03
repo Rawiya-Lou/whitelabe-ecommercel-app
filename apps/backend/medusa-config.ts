@@ -6,7 +6,6 @@ module.exports = defineConfig({
   projectConfig: {
     databaseUrl: process.env.DATABASE_URL,
     redisUrl: process.env.REDIS_URL || undefined,
-    /* Crucial: Allows Medusa to talk directly to Neon Cloud without a local Postgres engine installed */
     databaseDriverOptions: {
       connection: {
         ssl: {
@@ -18,7 +17,6 @@ module.exports = defineConfig({
       sameSite: "lax",
       secure: false,
     },
-
     http: {
       storeCors: process.env.STORE_CORS!,
       adminCors: process.env.ADMIN_CORS!,
@@ -28,6 +26,6 @@ module.exports = defineConfig({
     },
   },
   admin: {
-    disable: false,
+    disable: process.env.MEDUSA_ADMIN_DASHBOARD_DISABLED === "true",
   },
 });

@@ -31,7 +31,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend == 'true' }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Filter Changes
         id: filter
@@ -59,7 +59,7 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Node.js (Node 22 LTS + NPM Cache)
         uses: actions/setup-node@v3
@@ -112,7 +112,6 @@ jobs:
          MEDUSA_ADMIN_DASHBOARD_DISABLED: "true"
         run: |
          npx medusa db:migrate
-         npm run build
          npx medusa start > medusa-backend.log 2>&1 & sleep 10
          npx wait-on http://localhost:9000/health --timeout 180000
     
@@ -144,7 +143,7 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Node.js (Node 22 LTS + NPM Cache)
         uses: actions/setup-node@v4
@@ -178,7 +177,7 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
