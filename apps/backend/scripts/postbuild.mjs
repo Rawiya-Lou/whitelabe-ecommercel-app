@@ -1,6 +1,7 @@
 import { mkdir, stat, readdir, copyFile } from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
+import { execSync } from "child_process";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -27,19 +28,28 @@ async function copyRecursive(src, dest) {
 
 (async () => {
   try {
-    // If there's nothing to copy, exit quietly like the previous "|| true"
+    // Copy custom data files
     try {
       await stat(srcDir);
+      await copyRecursive(srcDir, path.join(destDir, "data"));
     } catch (e) {
-      // srcDir doesn't exist
-      process.exit(0);
+      // srcDir doesn't exist, skip
     }
 
-    await copyRecursive(srcDir, path.join(destDir, "data"));
+    // Build admin dashboard
+    try {
+      console.log("Building admin dashboard...");
+      execSync("npx medusa admin build", {
+        stdio: "inherit",
+        cwd: path.join(__dirname, ".."),
+      });
+    } catch (err) {
+      console.warn("Admin build warning:", err?.message ?? err);
+    }
+
     process.exit(0);
   } catch (err) {
-    // Keep original tolerant behaviour but surface a warning for debugging:
-    console.warn("postbuild copy warning:", err?.message ?? err);
+    console.warn("postbuild warning:", err?.message ?? err);
     process.exit(0);
   }
 })();

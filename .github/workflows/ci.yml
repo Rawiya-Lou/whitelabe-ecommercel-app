@@ -31,7 +31,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend == 'true' }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Filter Changes
         id: filter
@@ -104,12 +104,14 @@ jobs:
         working-directory: ./apps/backend
         env:
          DATABASE_URL: ${{ secrets.NEON_CI_DATABASE_URL }}
-         REDIS_URL: ${{ secrets.UPSTASH_CI_REDIS_URL }}
+         REDIS_URL: ${{ secrets.REDIS_URL }}
          JWT_SECRET: ${{ env.JWT_SECRET }}
          COOKIE_SECRET: ${{ env.COOKIE_SECRET }}
+         MEDUSA_ADMIN_DASHBOARD_DISABLED: "true"
         run: |
          npx medusa db:migrate
-         npx medusa start > medusa-backend.log 2>&1 & sleep 5
+         npm run build
+         npx medusa start > medusa-backend.log 2>&1 & sleep 10
          npx wait-on http://localhost:9000/health --timeout 180000
     
       - name: Check Medusa Backend Logs (if      previous step failed)
@@ -140,7 +142,7 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Setup Node.js (Node 22 LTS + NPM Cache)
         uses: actions/setup-node@v4
@@ -174,7 +176,7 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
