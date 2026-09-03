@@ -36,20 +36,25 @@ async function copyRecursive(src, dest) {
       // srcDir doesn't exist, skip
     }
 
-    // Build admin dashboard
-    try {
-      console.log("Building admin dashboard...");
-      execSync("npx medusa admin build", {
-        stdio: "inherit",
-        cwd: path.join(__dirname, ".."),
-      });
-    } catch (err) {
-      console.warn("Admin build warning:", err?.message ?? err);
+    // Build admin dashboard (skip if disabled)
+    if (process.env.MEDUSA_ADMIN_DASHBOARD_DISABLED !== "true") {
+      try {
+        console.log("Building admin dashboard...");
+        execSync("npx medusa admin build", {
+          stdio: "inherit",
+          cwd: path.join(__dirname, ".."),
+        });
+      } catch (err) {
+        console.error("Admin build failed:", err?.message ?? err);
+        process.exit(1);
+      }
+    } else {
+      console.log("Admin dashboard build disabled");
     }
 
     process.exit(0);
   } catch (err) {
-    console.warn("postbuild warning:", err?.message ?? err);
-    process.exit(0);
+    console.error("postbuild error:", err?.message ?? err);
+    process.exit(1);
   }
 })();

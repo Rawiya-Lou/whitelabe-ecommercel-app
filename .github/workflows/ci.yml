@@ -96,6 +96,8 @@ jobs:
 
       - name: Build Medusa backend (includes admin)
         working-directory: ./apps/backend
+        env:  
+          MEDUSA_ADMIN_DASHBOARD_DISABLED: "true"
         run: |
           npm run build
 
@@ -114,7 +116,7 @@ jobs:
          npx medusa start > medusa-backend.log 2>&1 & sleep 10
          npx wait-on http://localhost:9000/health --timeout 180000
     
-      - name: Check Medusa Backend Logs (if      previous step failed)
+      - name: Check Medusa Backend Logs (if previous step failed)
         if: failure()
         working-directory: ./apps/backend
         run: |
