@@ -57,12 +57,14 @@ jobs:
           curl -X POST -f "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
 
       - name: Wait for Render Backend to be Live & Healthy
+        env: 
+          MEDUSA_BACKEND_URL: ${{secrets.MEDUSA_BACKEND_URL}}
         run: |
           echo "Waiting for backend to finish deploying on Render..."
-          TIMEOUT=600
+          TIMEOUT=900
           INTERVAL=15
           ELAPSED=0
-          BACKEND_URL="${{ secrets.MEDUSA_BACKEND_URL }}"
+          BACKEND_URL="${MEDUSA_BACKEND_URL}"
 
           echo "Health check URL: ${BACKEND_URL}/health"
 
@@ -78,8 +80,7 @@ jobs:
               ELAPSED=$((ELAPSED + INTERVAL))
               done
              echo "Backend is live and healthy!"
-        env:
-          MEDUSA_BACKEND_URL: ${{ secrets.       MEDUSA_BACKEND_URL }}
+      
 
   # 3. Trigger Vercel to rebuild and deploy the Next.js storefront
   deploy-storefront-vercel:
@@ -88,6 +89,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Call Vercel Deploy Hook
+        env:
+          VERCEL_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK_URL}}
         run: |
           VERCEL_HOOK="${{ secrets.VERCEL_DEPLOY_HOOK_URL }}"
           if [ -z "$VERCEL_HOOK" ]; then
