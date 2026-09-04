@@ -12,7 +12,7 @@
     "typecheck": "turbo typecheck",
     "lint": "turbo lint",
     "test": "turbo test",
-    "test:unit": "turbo test --filter=storefront" ,
+    "test:unit": "turbo test --filter=storefront",
     "test:integration": "turbo test --filter=storefront",
     "backend:seed": "turbo seed --filter=@dtc/backend",
     "backend:dev": "turbo dev --filter=@dtc/backend",
@@ -26,11 +26,11 @@
   },
   "devDependencies": {
     "@medusajs/eslint-plugin": "2.19.0",
+    "ajv": "^8.13.0",
     "eslint": "^9.39.4",
     "jiti": "^2.7.0",
     "prettier": "^3.2.5",
-    "turbo": "^2.0.14",
-    "ajv": "^8.13.0"
+    "turbo": "^2.0.14"
   },
   "workspaces": [
     "apps/**",
@@ -43,5 +43,8 @@
     "@eslint/eslintrc": {
       "ajv": "^6.12.4"
     }
+  },
+  "dependencies": {
+    "npm": "^5.10.0"
   }
 }
