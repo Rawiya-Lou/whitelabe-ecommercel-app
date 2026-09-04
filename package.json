@@ -44,7 +44,5 @@
       "ajv": "^6.12.4"
     }
   },
-  "dependencies": {
-    "npm": "^5.10.0"
-  }
+  "dependencies": {}
 }
