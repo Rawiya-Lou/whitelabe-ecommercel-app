@@ -28,24 +28,6 @@ jobs:
           node-version: 22
           cache: "npm"
 
-      - name: Debug Node / npm / lockfile
-        run: |
-          echo "NODE / NPM versions and lockfile info (for CI debugging)"
-          node -v
-          npm -v
-          if [ -f package-lock.json ]; then
-            echo "package-lock.json exists — showing lock fields:"
-            grep -E '"lockfileVersion":|"npmVersion":' package-lock.json || true
-          else
-            echo "no package-lock.json at repo root"
-          fi
-
-      - name: Ensure npm@9 (safe npm for workspaces)
-        run: |
-          corepack enable || true
-          corepack prepare npm@9.8.1 --activate || npm i -g npm@9.8.1
-          npm -v
-
       - name: Install Monorepo Dependencies
         run: npm ci
 
