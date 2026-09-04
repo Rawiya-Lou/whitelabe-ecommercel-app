@@ -38,7 +38,8 @@ jobs:
       - name: Install production dependencies
         working-directory: ./apps/backend/.medusa/server
 
-        run: npm install --omit=dev 
+        run: npm install --omit=dev --legacy-peer-deps --no-audit --no-fund
+
 
       - name: Run migrations
         working-directory: ./apps/backend/.medusa/server
