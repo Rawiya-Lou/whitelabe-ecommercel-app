@@ -74,7 +74,7 @@ jobs:
 
           # Trim trailing slash if present, and point to Medusa v2's actual health route
           BASE_URL=$(echo "${MEDUSA_BACKEND_URL}" | sed 's:/*$::')
-          HEALTH_URL="${BASE_URL}/store/health"
+          HEALTH_URL="${BASE_URL}/health"
 
           echo "Target Health check URL: ${HEALTH_URL}"
           echo "Giving Render 30 seconds to initialize the build container before pinging..."
