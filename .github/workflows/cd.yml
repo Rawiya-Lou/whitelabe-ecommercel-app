@@ -40,7 +40,6 @@ jobs:
 
         run: npm install --omit=dev --legacy-peer-deps --no-audit --no-fund
 
-
       - name: Run migrations
         working-directory: ./apps/backend/.medusa/server
 
@@ -48,7 +47,7 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: npx medusa db:migrate
 
-  # 2. Trigger Render to rebuild and deploy the Medusa backend
+        # 2. Trigger Render to rebuild and deploy the Medusa backend
   deploy-backend-render:
     name: Trigger Render Backend Deploy
     needs: deploy-backend
@@ -58,32 +57,44 @@ jobs:
         env:
           RENDER_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
         run: |
-          curl -X POST -f "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+          if [ -z "$RENDER_HOOK" ]; then
+            echo "Error: RENDER_DEPLOY_HOOK_URL secret is not set"
+            exit 1
+          fi
+          curl -X POST -f "$RENDER_HOOK"
 
       - name: Wait for Render Backend to be Live & Healthy
         env:
-          MEDUSA_BACKEND_URL: ${{secrets.MEDUSA_BACKEND_URL}}
+          MEDUSA_BACKEND_URL: ${{ secrets.MEDUSA_BACKEND_URL }}
         run: |
           echo "Waiting for backend to finish deploying on Render..."
           TIMEOUT=900
-          INTERVAL=15
+          INTERVAL=20
           ELAPSED=0
-          BACKEND_URL="${MEDUSA_BACKEND_URL}"
 
-          echo "Health check URL: ${BACKEND_URL}/health"
+          # Trim trailing slash if present, and point to Medusa v2's actual health route
+          BASE_URL=$(echo "${MEDUSA_BACKEND_URL}" | sed 's:/*$::')
+          HEALTH_URL="${BASE_URL}/store/health"
 
-          until curl -s -f "${BACKEND_URL}/health" > /dev/null; do
+          echo "Target Health check URL: ${HEALTH_URL}"
+          echo "Giving Render 30 seconds to initialize the build container before pinging..."
+          sleep 30
+
+          # Loop until curl receives an HTTP 200 response code
+          until [ "$(curl -s -o /dev/null -w "%{http_code}" "${HEALTH_URL}")" -eq 200 ]; do
             if [ $ELAPSED -ge $TIMEOUT ]; then
               echo "Timed out waiting for backend to become healthy after ${ELAPSED}s."
-              echo "Debugging: Attempting verbose curl..."
-              curl -v "${BACKEND_URL}/health"
+              echo "Debugging: Fetching latest response details..."
+              curl -i "${HEALTH_URL}"
               exit 1
             fi
-            echo "Backend not ready yet. Retrying in ${INTERVAL}s... (${ELAPSED}/${TIMEOUT}s elapsed)"
-              sleep $INTERVAL
-              ELAPSED=$((ELAPSED + INTERVAL))
-              done
-             echo "Backend is live and healthy!"
+            
+            echo "Backend container updating or sleeping. Retrying in ${INTERVAL}s... (${ELAPSED}/${TIMEOUT}s elapsed)"
+            sleep $INTERVAL
+            ELAPSED=$((ELAPSED + INTERVAL))
+          done
+
+          echo "Success: Medusa Backend is live, migrated, and healthy!"
 
   # 3. Trigger Vercel to rebuild and deploy the Next.js storefront
   deploy-storefront-vercel:
