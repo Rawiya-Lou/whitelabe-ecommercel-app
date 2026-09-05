@@ -27,5 +27,6 @@ module.exports = defineConfig({
   },
   admin: {
     disable: process.env.MEDUSA_ADMIN_DASHBOARD_DISABLED === "true",
+    path: "/app",
   },
 });
