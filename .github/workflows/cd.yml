@@ -10,13 +10,15 @@ on:
 concurrency:
   group: production-deployment
   cancel-in-progress: false
+
 env:
   CI: true
-  SKIP_ENV_VALIDATION: "true" # Prevents T3-Env from crashing during storefront tasks
+  SKIP_ENV_VALIDATION: "true"
 
 jobs:
-  deploy-backend:
-    name: Deploy Medusa Backend & Run Migrations
+  # 1. Run migrations directly against the DB before launching the app
+  run-migrations:
+    name: Run Database Migrations
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -31,26 +33,17 @@ jobs:
       - name: Install Monorepo Dependencies
         run: npm ci
 
-      - name: Build Medusa application
+      # We only need to run the migrations script via your workspace tool
+      - name: Run Medusa Migrations
         working-directory: ./apps/backend
-        run: npx medusa build
-
-      - name: Install production dependencies
-        working-directory: ./apps/backend/.medusa/server
-
-        run: npm install --omit=dev --legacy-peer-deps --no-audit --no-fund
-
-      - name: Run migrations
-        working-directory: ./apps/backend/.medusa/server
-
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: npx medusa db:migrate
 
-        # 2. Trigger Render to rebuild and deploy the Medusa backend
+  # 2. Trigger Render to pull, use build-backend.js, and host
   deploy-backend-render:
     name: Trigger Render Backend Deploy
-    needs: deploy-backend
+    needs: run-migrations
     runs-on: ubuntu-latest
     steps:
       - name: Call Render Deploy Hook
@@ -72,31 +65,27 @@ jobs:
           INTERVAL=20
           ELAPSED=0
 
-          # Trim trailing slash if present, and point to Medusa v2's actual health route
           BASE_URL=$(echo "${MEDUSA_BACKEND_URL}" | sed 's:/*$::')
           HEALTH_URL="${BASE_URL}/health"
 
           echo "Target Health check URL: ${HEALTH_URL}"
-          echo "Giving Render 30 seconds to initialize the build container before pinging..."
+          echo "Giving Render 30 seconds to initialize..."
           sleep 30
 
-          # Loop until curl receives an HTTP 200 response code
           until [ "$(curl -s -o /dev/null -w "%{http_code}" "${HEALTH_URL}")" -eq 200 ]; do
             if [ $ELAPSED -ge $TIMEOUT ]; then
               echo "Timed out waiting for backend to become healthy after ${ELAPSED}s."
-              echo "Debugging: Fetching latest response details..."
-              curl -i "${HEALTH_URL}"
               exit 1
             fi
             
-            echo "Backend container updating or sleeping. Retrying in ${INTERVAL}s... (${ELAPSED}/${TIMEOUT}s elapsed)"
+            echo "Backend container updating. Retrying in ${INTERVAL}s... (${ELAPSED}/${TIMEOUT}s elapsed)"
             sleep $INTERVAL
             ELAPSED=$((ELAPSED + INTERVAL))
           done
 
-          echo "Success: Medusa Backend is live, migrated, and healthy!"
+          echo "Success: Medusa Backend is live and healthy!"
 
-  # 3. Trigger Vercel to rebuild and deploy the Next.js storefront
+  # 3. Trigger Vercel for Next.js storefront once backend is confirmed up
   deploy-storefront-vercel:
     name: Trigger Vercel Storefront Deploy
     needs: deploy-backend-render
@@ -114,6 +103,3 @@ jobs:
           echo "Triggering Vercel deployment..."
           curl -X POST -f "$VERCEL_HOOK"
           echo "Vercel deployment triggered successfully"
-
-# VERCEL_DEPLOY_HOOK_URL & RENDER_DEPLOY_HOOK_URL
-#  These belong exclusively in GitHub Repository Secrets. GitHub Actions injects them safely into your CI/CD workflow at runtime without exposing them in your codebase.

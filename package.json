@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "turbo dev",
     "build": "turbo build",
+    "build:backend":"node build-backend.js",
     "start": "turbo start",
     "typecheck": "turbo typecheck",
     "lint": "turbo lint",
