@@ -16,7 +16,7 @@
     "postbuild": "node ./scripts/postbuild.mjs",
     "build": "medusa build && npm run postbuild",
     "predeploy": "medusa db:migrate",
-    "start": "medusa start",
+    "start": "medusa start --directory .medusa/server",
     "dev": "medusa develop",
     "lint": "medusa lint",
     "typecheck": "tsc --noEmit",

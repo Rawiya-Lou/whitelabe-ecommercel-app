@@ -38,7 +38,7 @@ jobs:
         working-directory: ./apps/backend
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: npx medusa db:migrate
+        run: npm run build && npx medusa db:migrate
 
   # 2. Trigger Render to pull, use build-backend.js, and host
   deploy-backend-render:
