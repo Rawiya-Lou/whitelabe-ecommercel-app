@@ -89,10 +89,19 @@ jobs:
         working-directory: ./apps/storefront
 
         run: npx turbo run lint --filter=storefront
-      # - name: Run Storefront Unit Tests
-        # working-directory: ./apps/storefront
+      - name: Run Storefront Unit Tests
+        working-directory: ./apps/storefront
+        run: npx turbo run test:unit --filter=storefront
 
-      #   run: npx turbo run test:unit --filter=storefront
+
+      - name: Run Storefront Proxy Tests
+        working-directory: ./apps/storefront
+        env: 
+          UPSTASH_REDIS_REST_URL: "https://upstash.io"
+          UPSTASH_REDIS_REST_TOKEN: "mock-token"
+          NEXT_PUBLIC_SANITY_PROJECT_ID: "test-project-id"
+          
+        run: npx turbo run test:proxy --filter=storefront
 
       - name: Build Medusa backend
         working-directory: ./apps/backend

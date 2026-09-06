@@ -54,6 +54,20 @@ export default defineConfig({
           exclude: ["**/node_modules/**", "**/dist/**", "**/.next/**"],
         },
       },
+
+       {
+        extends: true,
+        test: {
+          name: "proxy",
+          environment: "edge-runtime", // Emulates Next.js Edge Runtime primitives safely
+          env: {
+            NODE_ENV: "test",
+            SKIP_ENV_VALIDATION: "true",
+          },
+          include: ["*.test.ts", "proxy.test.ts"], // Targets your root/workspace level proxy tests
+          exclude: ["**/node_modules/**", "**/dist/**", "**/.next/**"],
+        },
+      },
     ],
   },
 });

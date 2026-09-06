@@ -14,36 +14,74 @@ const authRatelimit = new Ratelimit({
   redis,
   limiter: Ratelimit.slidingWindow(5, "60 s"),
   analytics: true,
+  prefix: "@upstash/ratelimit/auth",
 });
 
 const checkoutRatelimit = new Ratelimit({
   redis,
   limiter: Ratelimit.slidingWindow(3, "60 s"),
   analytics: true,
+  prefix: "@upstash/ratelimit/checkout",
 });
 
 const handleI18n = createMiddleware(routing);
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const ip =
+    req.headers.get("cf-connecting-ip") ??
     req.headers.get("x-forwarded-for") ??
     req.headers.get("x-real-ip") ??
     "127.0.0.1";
 
   if (pathname.includes("/api/auth")) {
-    const { success } = await authRatelimit.limit(`auth_${ip}`);
+    const { success, limit, remaining, reset } = await authRatelimit.limit(
+      `auth_${ip}`,
+    );
     if (!success) {
-      return new NextResponse("Too many authentication attempts.", {
-        status: 429,
-      });
+      return withSecurityHeaders(
+        new NextResponse(
+          JSON.stringify({
+            error: "Too many authentication attempts. Please try again later.",
+          }),
+          {
+            status: 429,
+            headers: {
+              "Content-Type": "application/json",
+              "X-RateLimit-Limit": limit.toString(),
+              "X-RateLimit-Remaining": remaining.toString(),
+              "X-RateLimit-Reset": reset.toString(),
+            },
+          },
+        ),
+        req,
+      );
     }
   }
 
-  if (pathname.includes("/checkout")) {
-    const { success } = await checkoutRatelimit.limit(`checkout_${ip}`);
+  if (pathname.includes("/checkout") || pathname.includes("/api/checkout")) {
+    const { success, limit, remaining, reset } = await checkoutRatelimit.limit(
+      `checkout_${ip}`,
+    );
     if (!success) {
-      return new NextResponse("Too many checkout attempts.", { status: 429 });
+      return withSecurityHeaders(
+        new NextResponse(
+          JSON.stringify({
+            error:
+              "Too many checkout attempts. Please wait a moment before trying again.",
+          }),
+          {
+            status: 429,
+            headers: {
+              "Content-Type": "application/json",
+              "X-RateLimit-Limit": limit.toString(),
+              "X-RateLimit-Remaining": remaining.toString(),
+              "X-RateLimit-Reset": reset.toString(),
+            },
+          },
+        ),
+        req,
+      );
     }
   }
   // Cryptographic Nonce Generation
@@ -77,9 +115,20 @@ export async function middleware(req: NextRequest) {
 
   // i18n Handling
   const response = handleI18n(req);
+  return withSecurityHeaders(response, req, cspHeader);
+}
+
+function withSecurityHeaders(
+  response: NextResponse,
+  req: NextRequest,
+  cspHeader?: string,
+) {
+  if (cspHeader) {
+    response.headers.set("Content-Security-Policy", cspHeader);
+  }
 
   // Core Security Headers
-  response.headers.set("Content-Security-Policy", cspHeader);
+
   response.headers.set(
     "Strict-Transport-Security",
     "max-age=63072000; includeSubDomains; preload",
@@ -102,7 +151,10 @@ export async function middleware(req: NextRequest) {
 
   return response;
 }
-
 export const config = {
-  matcher: ["/((?!api|_next|_vercel|.*\\..*).*)", "/api/auth/:path*"],
+  matcher: [
+    "/((?!api|_next|_vercel|.*\\..*).*)",
+    "/api/auth/:path*",
+    "/api/checkout/:path*",
+  ],
 };

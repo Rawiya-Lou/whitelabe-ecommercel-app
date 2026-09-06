@@ -12,6 +12,7 @@
     "typecheck": "turbo typecheck",
     "lint": "turbo lint",
     "test": "turbo test",
+    "test:proxy": "turbo test --filter=storefront",
     "test:unit": "turbo test --filter=storefront",
     "test:integration": "turbo test --filter=storefront",
     "backend:seed": "turbo seed --filter=@dtc/backend",
