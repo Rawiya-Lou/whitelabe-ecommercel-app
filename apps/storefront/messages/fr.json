@@ -1,0 +1,11 @@
+{
+  "Common": {
+    "welcome": "Bienvenue dans notre boutique",
+    "currency": "DZD",
+    "wilayaNotice": "Livraison disponible dans toutes les wilayas avec paiement à la livraison"
+  },
+  "Navigation": {
+    "home": "Accueil",
+    "cart": "Panier"
+  }
+}

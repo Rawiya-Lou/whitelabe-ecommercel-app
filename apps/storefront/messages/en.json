@@ -1,0 +1,11 @@
+{
+  "Common": {
+    "welcome": "Welcome to our store",
+    "currency": "DZD",
+    "wilayaNotice": "Delivery available across all Wilayas with Cash on Delivery support"
+  },
+  "Navigation": {
+    "home": "Home",
+    "cart": "Cart"
+  }
+}
