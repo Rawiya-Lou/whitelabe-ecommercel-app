@@ -7,5 +7,10 @@
   "Navigation": {
     "home": "Accueil",
     "cart": "Panier"
+  },
+  "HomePage": {
+    "title": "Storefront Homepage",
+    "seoTitle": "Home",
+    "seoDescription": "Welcome to DTC Storefront white-label e-commerce platform."
   }
 }

@@ -1,7 +1,7 @@
-export default function Home() {
-  return (
-    <main>
-      <h1>E-Commerce website</h1>
-    </main>
-  );
+import { redirect } from 'next/navigation';
+import { routing } from '@/i18n/routing';
+
+export default function RootPage() {
+  // Automatically redirect `/` to default locale (e.g., `/en` or `/ar`)
+  redirect(`/${routing.defaultLocale}`);
 }

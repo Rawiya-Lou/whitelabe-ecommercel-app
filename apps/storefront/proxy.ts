@@ -35,15 +35,11 @@ export async function proxy(req: NextRequest) {
     "127.0.0.1";
 
   if (pathname.includes("/api/auth")) {
-    const { success, limit, remaining, reset } = await authRatelimit.limit(
-      `auth_${ip}`,
-    );
+    const { success, limit, remaining, reset } = await authRatelimit.limit(`auth_${ip}`);
     if (!success) {
       return withSecurityHeaders(
         new NextResponse(
-          JSON.stringify({
-            error: "Too many authentication attempts. Please try again later.",
-          }),
+          JSON.stringify({ error: "Too many authentication attempts. Please try again later." }),
           {
             status: 429,
             headers: {
@@ -52,24 +48,19 @@ export async function proxy(req: NextRequest) {
               "X-RateLimit-Remaining": remaining.toString(),
               "X-RateLimit-Reset": reset.toString(),
             },
-          },
+          }
         ),
-        req,
+        req
       );
     }
   }
 
   if (pathname.includes("/checkout") || pathname.includes("/api/checkout")) {
-    const { success, limit, remaining, reset } = await checkoutRatelimit.limit(
-      `checkout_${ip}`,
-    );
+    const { success, limit, remaining, reset } = await checkoutRatelimit.limit(`checkout_${ip}`);
     if (!success) {
       return withSecurityHeaders(
         new NextResponse(
-          JSON.stringify({
-            error:
-              "Too many checkout attempts. Please wait a moment before trying again.",
-          }),
+          JSON.stringify({ error: "Too many checkout attempts. Please wait a moment before trying again." }),
           {
             status: 429,
             headers: {
@@ -78,23 +69,31 @@ export async function proxy(req: NextRequest) {
               "X-RateLimit-Remaining": remaining.toString(),
               "X-RateLimit-Reset": reset.toString(),
             },
-          },
+          }
         ),
-        req,
+        req
       );
     }
   }
-  // Cryptographic Nonce Generation
-  // Generate a random 16-byte base64 token for this unique request
 
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
   const sanityProjectId = env.NEXT_PUBLIC_SANITY_PROJECT_ID || "4vzx52ot";
+  const isDev = process.env.NODE_ENV !== "production";
+
+  // Clean directives (no duplicates)
+  const scriptSrc = isDev
+    ? `'self' 'unsafe-eval' 'unsafe-inline' https://js.stripe.com https://cdn.sanity.io`
+    : `'self' 'nonce-${nonce}' 'strict-dynamic' https://js.stripe.com https://cdn.sanity.io`;
+
+  const styleSrc = isDev
+    ? `'self' 'unsafe-inline' https://fonts.googleapis.com`
+    : `'self' 'nonce-${nonce}' https://fonts.googleapis.com`;
 
   const cspHeader = `
     default-src 'self';
-    script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://js.stripe.com https://cdn.sanity.io;
-    style-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com;
-    img-src 'self' blob: data: https://cdn.sanity.io https://*.chargily.com https://*.stripe.com;
+    script-src ${scriptSrc};
+    style-src ${styleSrc};
+    img-src 'self' blob: data: https://cdn.sanity.io https://*.chargily.com https://pay.chargily.com https://*.stripe.com;
     font-src 'self' https://fonts.gstatic.com;
     frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://pay.chargily.com;
     connect-src 'self' https://${sanityProjectId}.api.sanity.io https://${sanityProjectId}.apicdn.sanity.io https://sanity.io https://api.stripe.com https://*.upstash.io https://*.chargily.com https://*.onrender.com;
@@ -102,36 +101,35 @@ export async function proxy(req: NextRequest) {
     base-uri 'self';
     form-action 'self';
     frame-ancestors 'none';
-    block-all-mixed-content;
     upgrade-insecure-requests;
   `
     .replace(/\s{2,}/g, " ")
     .trim();
 
-  // Internal Request Header Injection
-  const requestHeaders = new Headers(req.headers);
-  requestHeaders.set("x-nonce", nonce);
-  requestHeaders.set("Content-Security-Policy", cspHeader);
+ 
+  req.headers.set("x-nonce", nonce);
 
-  // i18n Handling
   const response = handleI18n(req);
-  return withSecurityHeaders(response, req, cspHeader);
+  
+  return withSecurityHeaders(response, req, cspHeader, nonce);
 }
 
 function withSecurityHeaders(
   response: NextResponse,
   req: NextRequest,
   cspHeader?: string,
+  nonce?: string
 ) {
   if (cspHeader) {
     response.headers.set("Content-Security-Policy", cspHeader);
   }
-
-  // Core Security Headers
+  if (nonce) {
+    response.headers.set("x-nonce", nonce);
+  }
 
   response.headers.set(
     "Strict-Transport-Security",
-    "max-age=63072000; includeSubDomains; preload",
+    "max-age=63072000; includeSubDomains; preload"
   );
   response.headers.set("X-Frame-Options", "DENY");
   response.headers.set("X-Content-Type-Options", "nosniff");
@@ -151,10 +149,7 @@ function withSecurityHeaders(
 
   return response;
 }
+
 export const config = {
-  matcher: [
-    "/((?!api|_next|_vercel|.*\\..*).*)",
-    "/api/auth/:path*",
-    "/api/checkout/:path*",
-  ],
+  matcher: ['/', '/(ar|en|fr)/:path*']
 };

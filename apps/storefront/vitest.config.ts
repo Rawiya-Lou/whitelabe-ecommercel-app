@@ -9,7 +9,7 @@ export default defineConfig({
  
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./app"),
+      "@": path.resolve(__dirname, "./"),
     },
   },
   test: {
@@ -31,7 +31,15 @@ export default defineConfig({
             NODE_ENV: "test",
             SKIP_ENV_VALIDATION: "true",
           },
-          include: ["app/**/__tests__/**/*.test.{ts,tsx}"],
+          server: {
+            deps: {
+              inline: ['next-intl']
+            }
+          },
+          include: [
+            "app/**/__tests__/**/*.test.{ts,tsx}",
+            "i18n/__tests__/*.test.{ts,tsx}"
+          ],
           exclude: [
             "**/node_modules/**",
             "**/dist/**",

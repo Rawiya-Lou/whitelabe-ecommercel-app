@@ -1,54 +1,48 @@
-import "../globals.css";
-import { Geist, Geist_Mono } from "next/font/google";
-import { notFound } from "next/navigation";
-import { LOCALS } from "../../i18n/request";
-import { routing } from "../../i18n/routing";
+import React from "react";
 import { getMessages } from "next-intl/server";
 import { NextIntlClientProvider } from "next-intl";
-import { headers } from "next/headers";
-import Script from "next/script";
+import { notFound } from "next/navigation";
+import { routing } from "@/i18n/routing";
+import { LOCALS } from "../../i18n/constants";
+import Script from "next/script"; 
+import { headers } from "next/headers"; 
+export { generateMetadata } from "./metadata";
+export { generateStaticParams } from "./static-params";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
+interface LayoutProps {
+  children: React.ReactNode,
+  params: Promise<{ locale: string }>,
+};
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
-interface LocalizedLayoutProps {
-  children: React.ReactNode;
-  params: Promise<{ locale?: string }>;
-}
-
-export default async function LocalizedLayout({
-  children,
-  params,
-}: LocalizedLayoutProps) {
+export default async function LocaleLayout({ children, params }: LayoutProps) {
   const { locale } = await params;
-
   if (!routing.locales.includes(locale as LOCALS)) {
     notFound();
   }
-  const headerList = await headers();
-  const nonce = headerList.get("x-nonce") || undefined;
-  const messages = await getMessages();
-  const isRtl = locale === "ar";
-  return (
-    <html
-      lang={locale}
-      dir={isRtl ? "rtl" : "ltr"}
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <head></head>
-      <body dir={isRtl ? "rtl" : "ltr"} className="min-h-full flex flex-col">
-        <NextIntlClientProvider messages={messages} locale={locale}>
-          {children}
-        </NextIntlClientProvider>
+  const isRtl = locale === LOCALS.AR;
+  let messages = {};
+  
+  try {
+    messages = await getMessages();
+  } catch (err) {
+    console.error("CRITICAL ERROR inside getMessages():", err);
+    throw err;
+  }
 
-        {/* Third-Party Script with Mandatory Cryptographic Nonce */}
+  const requestHeaders = await headers();
+  const nonce = requestHeaders.get("x-nonce") || undefined;
+  const ClientProviderShell = NextIntlClientProvider as unknown as React.ComponentType<{
+    children: React.ReactNode;
+    messages: Record<string, unknown>;
+    locale: string;
+  }>;
+  return (
+    <html lang={locale} dir={isRtl ? "rtl" : "ltr"}>
+      <body>
+        <ClientProviderShell messages={messages} locale={locale}>
+          {children}
+        </ClientProviderShell>
+        
         <Script
           src="https://js.stripe.com/v3/"
           strategy="afterInteractive"

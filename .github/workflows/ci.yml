@@ -2,7 +2,7 @@ name: CI & Quality Control
 
 on:
   push:
-    branches: [main, feature, develop]
+    branches: [main, feature/*, develop]
   pull_request:
     branches: [main, master]
 
@@ -29,6 +29,7 @@ jobs:
     outputs:
       storefront: ${{ steps.filter.outputs.storefront == 'true' }}
       backend: ${{ steps.filter.outputs.backend == 'true' }}
+      cms: ${{ steps.filter.outputs.cms }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -45,6 +46,11 @@ jobs:
               - '.github/workflows/ci.yml'
             backend:
               - 'apps/backend/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - '.github/workflows/ci.yml'
+            cms:
+              - 'apps/cms/**'
               - 'package.json'
               - 'package-lock.json'
               - '.github/workflows/ci.yml'
@@ -93,19 +99,18 @@ jobs:
         working-directory: ./apps/storefront
         run: npx turbo run test:unit --filter=storefront
 
-
       - name: Run Storefront Proxy Tests
         working-directory: ./apps/storefront
-        env: 
+        env:
           UPSTASH_REDIS_REST_URL: "https://upstash.io"
           UPSTASH_REDIS_REST_TOKEN: "mock-token"
           NEXT_PUBLIC_SANITY_PROJECT_ID: "test-project-id"
-          
+
         run: npx turbo run test:proxy --filter=storefront
 
       - name: Build Medusa backend
         working-directory: ./apps/backend
-        env:  
+        env:
           MEDUSA_ADMIN_DASHBOARD_DISABLED: "true"
         run: |
           npm run build
@@ -114,16 +119,16 @@ jobs:
       - name: Setup Medusa Database & Start Server
         working-directory: ./apps/backend
         env:
-         DATABASE_URL: ${{ secrets.NEON_CI_DATABASE_URL }}
-         REDIS_URL: ${{ secrets.REDIS_URL }}
-         JWT_SECRET: ${{ env.JWT_SECRET }}
-         COOKIE_SECRET: ${{ env.COOKIE_SECRET }}
-         MEDUSA_ADMIN_DASHBOARD_DISABLED: "true"
+          DATABASE_URL: ${{ secrets.NEON_CI_DATABASE_URL }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          JWT_SECRET: ${{ env.JWT_SECRET }}
+          COOKIE_SECRET: ${{ env.COOKIE_SECRET }}
+          MEDUSA_ADMIN_DASHBOARD_DISABLED: "true"
         run: |
-         npx medusa db:migrate
-         npx medusa start > medusa-backend.log 2>&1 & sleep 10
-         npx wait-on http://localhost:9000/health --timeout 180000
-    
+          npx medusa db:migrate
+          npx medusa start > medusa-backend.log 2>&1 & sleep 10
+          npx wait-on http://localhost:9000/health --timeout 180000
+
       - name: Check Medusa Backend Logs (if previous step failed)
         if: failure()
         working-directory: ./apps/backend
@@ -139,7 +144,7 @@ jobs:
 
       - name: Production Build
         working-directory: ./apps/storefront
-        env: 
+        env:
           NEXT_PUBLIC_MEDUSA_BACKEND_URL: "http://localhost:9000"
           NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: ${{secrets.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY}}
           NEXT_PUBLIC_SANITY_PROJECT_ID: ${{secrets.NEXT_PUBLIC_SANITY_PROJECT_ID}}
@@ -184,6 +189,34 @@ jobs:
         working-directory: ./apps/backend
 
         run: npx turbo run build --filter=@dtc/backend
+
+  cms-ci:
+    name: CMS (Sanity Studio) - Quality & Build
+    needs: changes
+    if: ${{ needs.changes.outputs.cms == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js (Node 22 LTS + NPM Cache)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Typecheck & Validate Studio Schema
+        working-directory: ./apps/cms
+        run: npx turbo run typecheck --filter=cms
+
+      - name: Studio Build
+        working-directory: ./apps/cms
+        env:
+          SANITY_STUDIO_PROJECT_ID: ${{ secrets.SANITY_STUDIO_PROJECT_ID || '4vzx52ot' }}
+          SANITY_STUDIO_DATASET: ${{ secrets.SANITY_STUDIO_DATASET || 'production' }}
+        run: npx turbo run build --filter=@dtc/cms
 
   # JOB 4: Security & Vulnerability Audit
 
