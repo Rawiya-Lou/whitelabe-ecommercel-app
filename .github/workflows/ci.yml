@@ -26,6 +26,9 @@ jobs:
   changes:
     name: Detect Changed Applications
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+      contents: read
     outputs:
       storefront: ${{ steps.filter.outputs.storefront == 'true' }}
       backend: ${{ steps.filter.outputs.backend == 'true' }}
