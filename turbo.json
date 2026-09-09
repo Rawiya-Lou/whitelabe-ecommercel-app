@@ -40,6 +40,9 @@
     "test:unit": { "cache": true },
     "test:integration": { 
       "cache": false
+    },
+    "test:proxy": { 
+      "cache": false
     }
   }
 }

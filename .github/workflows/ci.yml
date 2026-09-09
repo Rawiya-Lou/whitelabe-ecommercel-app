@@ -107,7 +107,7 @@ jobs:
         env:
           UPSTASH_REDIS_REST_URL: "https://upstash.io"
           UPSTASH_REDIS_REST_TOKEN: "mock-token"
-          NEXT_PUBLIC_SANITY_PROJECT_ID: "test-project-id"
+          NEXT_PUBLIC_SANITY_PROJECT_ID: "mockid12"
 
         run: npx turbo run test:proxy --filter=storefront
 
@@ -219,7 +219,7 @@ jobs:
         env:
           SANITY_STUDIO_PROJECT_ID: ${{ secrets.SANITY_STUDIO_PROJECT_ID || '4vzx52ot' }}
           SANITY_STUDIO_DATASET: ${{ secrets.SANITY_STUDIO_DATASET || 'production' }}
-        run: npx turbo run build --filter=@dtc/cms
+        run: npx turbo run build --filter=cms
 
   # JOB 4: Security & Vulnerability Audit
 
