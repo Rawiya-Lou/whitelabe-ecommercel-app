@@ -1,0 +1,28 @@
+{
+  "name": "cms",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "sanity dev",
+    "build": "sanity build",
+    "start": "sanity start"
+  },
+  "dependencies": {
+    "@sanity/code-input": "^4.1.0",
+    "@sanity/vision": "^3.50.0",
+    "next-sanity": "^13.3.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "sanity": "^3.99.0",
+    "styled-components": "^6.5.3"
+  },
+  "devDependencies": {
+    "@sanity/cli": "^3.50.0",
+    "@types/node": "^20.19.43",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "dotenv": "^16.6.1",
+    "typescript": "^5.0.0"
+  }
+}
