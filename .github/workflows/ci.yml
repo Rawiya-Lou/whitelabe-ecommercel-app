@@ -17,8 +17,8 @@ env:
   JWT_SECRET: "super-secret-ci-jwt-token-string-32-chars-long"
   COOKIE_SECRET: "super-secret-ci-cookie-token-string-32-chars-long"
   NEXT_PUBLIC_MEDUSA_BACKEND_URL: "http://localhost:9000"
-  NEXT_PUBLIC_SANITY_PROJECT_ID: "ci_sanity_project_id"
-  NEXT_PUBLIC_SANITY_DATASET: "production"
+  NEXT_PUBLIC_SANITY_PROJECT_ID: "mockid12"
+  NEXT_PUBLIC_SANITY_DATASET: "testdataset"
 
 jobs:
   # JOB 1: Detect Changed Files (Path Filtering)

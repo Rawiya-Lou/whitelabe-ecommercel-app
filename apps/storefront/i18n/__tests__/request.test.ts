@@ -11,14 +11,6 @@ import getRequestConfig from "../request";
 import { routing } from "../routing";
 import type { RequestConfig } from "next-intl/server";
 
-// Mock Environment Variables
-vi.mock("../app/env.mjs", () => ({
-  env: {
-    NEXT_PUBLIC_SANITY_PROJECT_ID: "test-project-id",
-    NEXT_PUBLIC_SANITY_DATASET: "test-dataset",
-  },
-}));
-
 vi.doMock("../messages/en.json", () => ({
   Common: {
     welcome: "Welcome to our store",
@@ -74,6 +66,18 @@ interface RequestConfigParams {
   locale: string;
 }
 
+vi.mock("../app/env.mjs", () => ({
+  env: { NEXT_PUBLIC_SANITY_PROJECT_ID: "mockid12", NEXT_PUBLIC_SANITY_DATASET: "testdataset" }
+}));
+
+vi.mock("@/app/env.mjs", () => ({
+  env: { NEXT_PUBLIC_SANITY_PROJECT_ID: "mockid12", NEXT_PUBLIC_SANITY_DATASET: "testdataset" }
+}));
+
+vi.mock("@/env.mjs", () => ({
+  env: { NEXT_PUBLIC_SANITY_PROJECT_ID: "mockid12", NEXT_PUBLIC_SANITY_DATASET: "testdataset" }
+}));
+
 describe("i18n request.ts", () => {
   const originalFetch = global.fetch;
   let errorSpy: MockInstance;
@@ -84,11 +88,13 @@ describe("i18n request.ts", () => {
     errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+   
   });
 
   afterEach(() => {
     global.fetch = originalFetch;
     vi.restoreAllMocks();
+    
   });
 
   it("should merge local JSON messages with dynamic strings from Sanity", async () => {
@@ -115,8 +121,8 @@ describe("i18n request.ts", () => {
     const [calledUrl, calledOptions] = vi.mocked(global.fetch).mock
       .calls[0] as [string, RequestInit];
 
-    expect(calledUrl).toContain("4vzx52ot.apicdn.sanity.io");
-    expect(calledUrl).toContain("production");
+    expect(calledUrl).toContain("mockid12.apicdn.sanity.io");
+    expect(calledUrl).toContain("testdataset");
 
     const decodedUrl = decodeURIComponent(calledUrl);
     expect(decodedUrl).toContain(

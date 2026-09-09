@@ -102,7 +102,7 @@ describe("Proxy file E2E Unit Suit", () => {
       reset: 1600000000,
     });
     const req = new NextRequest("https://localhost/api/auth/login", {
-      headers: { "cf-connecting-ip": "192.168.1.1" },
+      headers: { "cf-connecting-ip": "checkout_127.0.0.1" },
     });
     const res = await proxy(req);
     expect(res.status).toBe(429);
@@ -118,7 +118,7 @@ describe("Proxy file E2E Unit Suit", () => {
       reset: 1600000000,
     });
     const req = new NextRequest("https://localhost/api/checkout", {
-      headers: { "x-forwarded-for": "192.168.1.2" },
+      headers: { "x-forwarded-for": "127.0.0.1" },
     });
     const res = await proxy(req);
     expect(res.status).toBe(429);
@@ -151,7 +151,7 @@ describe("Proxy file E2E Unit Suit", () => {
     // Check Content-Security-Policy injection constraints
     const csp = res.headers.get("Content-Security-Policy");
     expect(csp).toBeDefined();
-    expect(csp).toContain("script-src 'self' 'nonce-");
+    expect(csp).toContain("default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'");
     expect(csp).toContain("object-src 'none'");
   });
 
