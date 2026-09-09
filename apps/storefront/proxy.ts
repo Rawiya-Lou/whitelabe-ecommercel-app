@@ -35,11 +35,15 @@ export async function proxy(req: NextRequest) {
     "127.0.0.1";
 
   if (pathname.includes("/api/auth")) {
-    const { success, limit, remaining, reset } = await authRatelimit.limit(`auth_${ip}`);
+    const { success, limit, remaining, reset } = await authRatelimit.limit(
+      `auth_${ip}`,
+    );
     if (!success) {
       return withSecurityHeaders(
         new NextResponse(
-          JSON.stringify({ error: "Too many authentication attempts. Please try again later." }),
+          JSON.stringify({
+            error: "Too many authentication attempts. Please try again later.",
+          }),
           {
             status: 429,
             headers: {
@@ -48,19 +52,24 @@ export async function proxy(req: NextRequest) {
               "X-RateLimit-Remaining": remaining.toString(),
               "X-RateLimit-Reset": reset.toString(),
             },
-          }
+          },
         ),
-        req
+        req,
       );
     }
   }
 
   if (pathname.includes("/checkout") || pathname.includes("/api/checkout")) {
-    const { success, limit, remaining, reset } = await checkoutRatelimit.limit(`checkout_${ip}`);
+    const { success, limit, remaining, reset } = await checkoutRatelimit.limit(
+      `checkout_${ip}`,
+    );
     if (!success) {
       return withSecurityHeaders(
         new NextResponse(
-          JSON.stringify({ error: "Too many checkout attempts. Please wait a moment before trying again." }),
+          JSON.stringify({
+            error:
+              "Too many checkout attempts. Please wait a moment before trying again.",
+          }),
           {
             status: 429,
             headers: {
@@ -69,9 +78,9 @@ export async function proxy(req: NextRequest) {
               "X-RateLimit-Remaining": remaining.toString(),
               "X-RateLimit-Reset": reset.toString(),
             },
-          }
+          },
         ),
-        req
+        req,
       );
     }
   }
@@ -106,11 +115,10 @@ export async function proxy(req: NextRequest) {
     .replace(/\s{2,}/g, " ")
     .trim();
 
- 
   req.headers.set("x-nonce", nonce);
 
   const response = handleI18n(req);
-  
+
   return withSecurityHeaders(response, req, cspHeader, nonce);
 }
 
@@ -118,7 +126,7 @@ function withSecurityHeaders(
   response: NextResponse,
   req: NextRequest,
   cspHeader?: string,
-  nonce?: string
+  nonce?: string,
 ) {
   if (cspHeader) {
     response.headers.set("Content-Security-Policy", cspHeader);
@@ -129,7 +137,7 @@ function withSecurityHeaders(
 
   response.headers.set(
     "Strict-Transport-Security",
-    "max-age=63072000; includeSubDomains; preload"
+    "max-age=63072000; includeSubDomains; preload",
   );
   response.headers.set("X-Frame-Options", "DENY");
   response.headers.set("X-Content-Type-Options", "nosniff");
@@ -151,5 +159,5 @@ function withSecurityHeaders(
 }
 
 export const config = {
-  matcher: ['/', '/(ar|en|fr)/:path*']
+  matcher: ["/", "/(ar|en|fr)/:path*", "/((?!api|_next|_vercel|.*\\..*).*)"],
 };
