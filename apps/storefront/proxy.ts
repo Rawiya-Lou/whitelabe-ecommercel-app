@@ -4,6 +4,7 @@ import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import { routing } from "./i18n/routing";
 import { env } from "./app/env.mjs";
+import { LOCALS } from "./i18n/constants";
 
 const redis = new Redis({
   url: env.UPSTASH_REDIS_REST_URL || "",
@@ -23,6 +24,11 @@ const checkoutRatelimit = new Ratelimit({
   analytics: true,
   prefix: "@upstash/ratelimit/checkout",
 });
+
+const COUNTRY_TO_LOCALE_MAP: Record<string, LOCALS> = {
+  DZ: LOCALS.AR,
+  FR: LOCALS.FR,
+};
 
 const handleI18n = createMiddleware(routing);
 
@@ -85,6 +91,45 @@ export async function proxy(req: NextRequest) {
     }
   }
 
+  // DYNAMIC GEOLOCATION & LANGUAGE PRIORITY MATRIX
+  const userLangCookie = req.cookies.get("NEXT_LOCALE")?.value;
+
+  const detectedCountry = (
+    req.headers.get("cf-ipcountry") ||
+    req.headers.get("x-vercel-ip-country") ||
+    ""
+  ).toUpperCase();
+
+  const geoMatchedLocale = COUNTRY_TO_LOCALE_MAP[detectedCountry];
+
+  const acceptLanguage = req.headers.get("accept-language") || "";
+  const parsedBrowserLocale = acceptLanguage.split(",")[0]?.split("-")[0];
+
+  // Evaluate URL prefix structure
+  const hasLocalePrefix = routing.locales.some(
+    (loc) => pathname.startsWith(`/${loc}/`) || pathname === `/${loc}`,
+  );
+
+  // If missing prefix, process routing redirection cascade manually
+  if (!hasLocalePrefix) {
+    const isBrowserLocaleSupported = Object.values(LOCALS).includes(
+      parsedBrowserLocale as LOCALS,
+    );
+
+    const determinedLocale =
+      userLangCookie ||
+      geoMatchedLocale ||
+      (isBrowserLocaleSupported ? (parsedBrowserLocale as LOCALS) : LOCALS.EN);
+
+    req.nextUrl.pathname = `/${determinedLocale}${pathname}`;
+
+    const redirectResponse = NextResponse.redirect(req.nextUrl);
+    // Return early with complete header safety rules applied
+    return withSecurityHeaders(redirectResponse, req);
+  }
+
+  // SECURITY & CRYPTO NONCE ENGINE GENERATION
+
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
   const sanityProjectId = env.NEXT_PUBLIC_SANITY_PROJECT_ID || "4vzx52ot";
   const isDev = process.env.NODE_ENV !== "production";
@@ -117,6 +162,7 @@ export async function proxy(req: NextRequest) {
 
   req.headers.set("x-nonce", nonce);
 
+  //  REWRITE i18n HEADER RESOLUTION
   const response = handleI18n(req);
 
   return withSecurityHeaders(response, req, cspHeader, nonce);
@@ -143,7 +189,7 @@ function withSecurityHeaders(
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
 
-  // Geo-Routing Headers for Algeria
+  // DYNAMIC REGIONAL DATA CONTEXT INJECTION
   const country =
     req.headers.get("cf-ipcountry") ||
     req.headers.get("x-vercel-ip-country") ||
@@ -159,5 +205,5 @@ function withSecurityHeaders(
 }
 
 export const config = {
-  matcher: ["/", "/(ar|en|fr)/:path*", "/((?!api|_next|_vercel|.*\\..*).*)"],
+  matcher: ["/", "/((?!api|_next|_vercel|studio|.*\\..*).*)"],
 };

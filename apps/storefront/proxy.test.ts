@@ -1,9 +1,8 @@
 import { describe, expect, vi, it, beforeEach } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
+import {LOCALS} from './i18n/constants';
 import { proxy } from "./proxy";
 import { Redis } from "@upstash/redis"; 
-
-
 
 const { mockLimit, mockGet, mockSet, mockConstructorSpy} = vi.hoisted(() => {
   return {
@@ -32,8 +31,6 @@ type UpstashConfig = ConstructorParameters<typeof Redis>[0];
 
 
 vi.mock("@upstash/redis", () => {
-  // 2. Define a standard mockable JavaScript class. 
-  // This gives Vitest a real 'newable' prototype constructor while remaining strictly type-safe.
   class MockedRedis {
     constructor(config: UpstashConfig) {
       mockConstructorSpy(config);
@@ -51,20 +48,28 @@ vi.mock("next-intl/middleware", () => {
   return {
     default: vi.fn().mockImplementation(() => {
       // Returns a fallback clean NextResponse to represent downstream middleware handlers
-      return () => NextResponse.next();
+      return () => {
+        const response = NextResponse.next();
+        response.headers.set("x-mocked-next-intl", "true");
+        return response;
+      };
     }),
   };
 });
 
 vi.mock("./i18n/routing", () => ({
-  routing: {},
+  routing: {
+    locales: ['en', 'fr', 'ar'],
+    defaultLocale: "en"
+
+  },
 }));
 
 vi.mock("./app/env.mjs", () => ({
   env: {
     UPSTASH_REDIS_REST_URL: "https://upstash.io",
     UPSTASH_REDIS_REST_TOKEN: "mock-token",
-    NEXT_PUBLIC_SANITY_PROJECT_ID: "test-project-id",
+    NEXT_PUBLIC_SANITY_PROJECT_ID: "mockid12",
   },
 }));
 
@@ -73,6 +78,7 @@ describe("Proxy file E2E Unit Suit", () => {
     vi.clearAllMocks();
     vi.resetModules();
   });
+
    it("should initialize Redis with correct mocked environment variables", async () => {
     mockLimit.mockResolvedValue({
       success: true,
@@ -80,20 +86,23 @@ describe("Proxy file E2E Unit Suit", () => {
       remaining: 4,
       reset: 0,
     });
-     const { proxy } = await import("./proxy");
+     const { proxy: dynamicProxy } = await import("./proxy");
 
-    
-    const req = new NextRequest("https://localhost/api/cached-endpoint");
-    await proxy(req);
+     const req = new NextRequest("https://localhost/en/shop");
+    await dynamicProxy(req);
+
     expect(mockConstructorSpy).toHaveBeenCalledWith(
       {
         url: "https://upstash.io",
         token: "mock-token",
       }
-    );
+
+    )
+    
     
    
   });
+
   it("should trigger HTTP 429 when Auth endpoint limits are broken", async () => {
     mockLimit.mockResolvedValue({
       success: false,
@@ -102,14 +111,16 @@ describe("Proxy file E2E Unit Suit", () => {
       reset: 1600000000,
     });
     const req = new NextRequest("https://localhost/api/auth/login", {
-      headers: { "cf-connecting-ip": "checkout_127.0.0.1" },
+      headers: { "cf-connecting-ip": "127.0.0.1" },
     });
     const res = await proxy(req);
     expect(res.status).toBe(429);
     const body = await res.json();
     expect(body.error).toContain("Too many authentication attempts");
     expect(res.headers.get("X-RateLimit-Limit")).toBe("5");
+
   });
+
   it("should trigger HTTP 429 when checkout endpoint limits are broken", async () => {
     mockLimit.mockResolvedValue({
       success: false,
@@ -128,7 +139,79 @@ describe("Proxy file E2E Unit Suit", () => {
     expect(res.headers.get("X-RateLimit-Limit")).toBe("3");
   });
 
-  it("should inject cryptographic nonces and standard security protocols", async () => {
+  it("should issue a 307 redirect to /ar when an Algerian IP hits a root path", async () => {
+    mockLimit.mockResolvedValue({ success: true, limit: 5, remaining: 4, reset: 0 });
+
+    const req = new NextRequest("https://localhost/shop", {
+      headers: { "cf-ipcountry": "DZ" },
+    });
+    const res = await proxy(req);
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe("https://localhost/ar/shop");
+    expect(res.headers.get("x-user-country")).toBe("DZ");
+    expect(res.headers.get("x-default-currency")).toBe("dzd");
+    expect(res.headers.get("x-wilaya-shipping")).toBe("true");
+  });
+
+  it("should respect manual user selection via NEXT_LOCALE cookie over Geo-IP rules", async () => {
+    mockLimit.mockResolvedValue({ success: true, limit: 5, remaining: 4, reset: 0 });
+
+    const req = new NextRequest("https://localhost/shop", {
+      headers: { "cf-ipcountry": "DZ" }, // IP says Algeria (ar)
+    });
+    req.cookies.set("NEXT_LOCALE", LOCALS.FR); 
+
+    const res = await proxy(req);
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe("https://localhost/fr/shop");
+  });
+
+   it("should fall back to default language prefix when non-mapped country passes through gateway", async () => {
+    mockLimit.mockResolvedValue({ success: true, limit: 5, remaining: 4, reset: 0 });
+
+    const req = new NextRequest("https://localhost/shop", {
+      headers: { "cf-ipcountry": "US" },
+    });
+    const res = await proxy(req);
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe("https://localhost/en/shop");
+    expect(res.headers.get("x-user-country")).toBe("US");
+    expect(res.headers.get("x-default-currency")).toBeNull();
+  });
+
+   it("should let next-intl take over cleanly when valid prefix path is provided", async () => {
+    mockLimit.mockResolvedValue({ success: true, limit: 5, remaining: 4, reset: 0 });
+
+    const req = new NextRequest("https://localhost/ar/shop");
+    const res = await proxy(req);
+
+    expect(res.headers.get("x-mocked-next-intl")).toBe("true");
+  });
+
+  it("should inject standard secure header policies across routing frames", async () => {
+    mockLimit.mockResolvedValue({ success: true, limit: 5, remaining: 4, reset: 0 });
+
+    const req = new NextRequest("https://localhost/en/shop");
+    const res = await proxy(req);
+
+    expect(res.headers.get("X-Frame-Options")).toBe("DENY");
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(res.headers.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
+    expect(res.headers.get("Strict-Transport-Security")).toContain("max-age=63072000");
+
+    const csp = res.headers.get("Content-Security-Policy");
+    expect(csp).toBeDefined();
+    expect(csp).toContain("default-src 'self'");
+    expect(csp).toContain("object-src 'none'");
+  });
+
+
+
+
+  it("should return 307 when the url does not have a valid language path prefix", async () => {
     mockLimit.mockResolvedValue({
       success: true,
       limit: 5,
@@ -138,21 +221,8 @@ describe("Proxy file E2E Unit Suit", () => {
     const req = new NextRequest("https://localhost/dashboard");
     const res = await proxy(req);
 
-    expect(res.status).toBe(200);
-    expect(res.headers.get("X-Frame-Options")).toBe("DENY");
-    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
-    expect(res.headers.get("Referrer-Policy")).toBe(
-      "strict-origin-when-cross-origin",
-    );
-    expect(res.headers.get("Strict-Transport-Security")).toContain(
-      "max-age=63072000",
-    );
-
-    // Check Content-Security-Policy injection constraints
-    const csp = res.headers.get("Content-Security-Policy");
-    expect(csp).toBeDefined();
-    expect(csp).toContain("default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'");
-    expect(csp).toContain("object-src 'none'");
+    expect(res.status).toBe(307);
+ 
   });
 
   it("should enforce Algerian DZD currency constraints and localized shipping configs when custom header evaluates to DZ", async () => {
