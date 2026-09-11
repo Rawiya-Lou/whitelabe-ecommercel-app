@@ -2,6 +2,7 @@ import createNextIntlPlugin from "next-intl/plugin";
 import type { NextConfig } from "next";
 import { env } from "./app/env.mjs";
 
+
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 
 const SANITY_PROJECT_ID = env.NEXT_PUBLIC_SANITY_PROJECT_ID || "4vzx52ot";
@@ -14,6 +15,9 @@ const nextConfig: NextConfig = {
   compiler: {
     removeConsole: process.env.NODE_ENV === 'production' ? true : false
   },
+
+
+  
 
   // Explicitly type protocol as 'https' literal to satisfy NextConfig RemotePattern type
   images: {
@@ -41,6 +45,7 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  
 
   transpilePackages: ["@dtc/backend"],
 

@@ -6,7 +6,8 @@ import { routing } from "@/i18n/routing";
 import { LOCALS } from "../../i18n/constants";
 import Script from "next/script";
 import { headers } from "next/headers";
-import { MedusaStoreProvider } from "@/providers/medusa-store-provider";
+import { AlgerianDeliveryProvider } from "@/providers/algerian-delivery-provider";
+import { MedusaStoreProvider } from "@/providers/store-provider";
 export { generateMetadata } from "./metadata";
 export { generateStaticParams } from "./static-params";
 
@@ -20,6 +21,7 @@ export default async function LocaleLayout({ children, params }: LayoutProps) {
   if (!routing.locales.includes(locale as LOCALS)) {
     notFound();
   }
+
   const isRtl = locale === LOCALS.AR;
   let messages = {};
 
@@ -32,6 +34,8 @@ export default async function LocaleLayout({ children, params }: LayoutProps) {
 
   const requestHeaders = await headers();
   const nonce = requestHeaders.get("x-nonce") || undefined;
+  const countryCode = requestHeaders.get("x-user-country") || "DZ";
+  const isAlgeria = countryCode.toUpperCase() === "DZ";
   const ClientProviderShell =
     NextIntlClientProvider as unknown as React.ComponentType<{
       children: React.ReactNode;
@@ -43,7 +47,12 @@ export default async function LocaleLayout({ children, params }: LayoutProps) {
       <body>
         <ClientProviderShell messages={messages} locale={locale}>
           <MedusaStoreProvider locale={locale as LOCALS}>
-            <main>{children}</main>
+            <AlgerianDeliveryProvider
+              locale={locale as LOCALS}
+              isAlgeriaRegion={isAlgeria}
+            >
+              <main>{children}</main>
+            </AlgerianDeliveryProvider>
           </MedusaStoreProvider>
         </ClientProviderShell>
 
