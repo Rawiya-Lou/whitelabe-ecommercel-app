@@ -7,13 +7,9 @@ export interface MedusaRegion {
   countries: Array<{ iso_2: string }>;
 }
 
-interface CountryCodeType {
-  countryCode: string;
-}
 // server-side utility to map a country code to a Medusa v2 Region
-export async function getMedusaRegionByCountry({
-  countryCode,
-}: CountryCodeType): Promise<MedusaRegion | undefined> {
+export async function getMedusaRegionByCountry(
+  countryCode: string): Promise<MedusaRegion | undefined> {
   try {
     const cleanCountryCode = countryCode.toLowerCase();
     // Fetch available regions from Medusa v2 Store API

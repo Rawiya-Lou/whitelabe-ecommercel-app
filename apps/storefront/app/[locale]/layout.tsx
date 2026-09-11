@@ -4,15 +4,16 @@ import { NextIntlClientProvider } from "next-intl";
 import { notFound } from "next/navigation";
 import { routing } from "@/i18n/routing";
 import { LOCALS } from "../../i18n/constants";
-import Script from "next/script"; 
-import { headers } from "next/headers"; 
+import Script from "next/script";
+import { headers } from "next/headers";
+import { MedusaStoreProvider } from "@/providers/medusa-store-provider";
 export { generateMetadata } from "./metadata";
 export { generateStaticParams } from "./static-params";
 
 interface LayoutProps {
-  children: React.ReactNode,
-  params: Promise<{ locale: string }>,
-};
+  children: React.ReactNode;
+  params: Promise<{ locale: string }>;
+}
 
 export default async function LocaleLayout({ children, params }: LayoutProps) {
   const { locale } = await params;
@@ -21,7 +22,7 @@ export default async function LocaleLayout({ children, params }: LayoutProps) {
   }
   const isRtl = locale === LOCALS.AR;
   let messages = {};
-  
+
   try {
     messages = await getMessages();
   } catch (err) {
@@ -31,18 +32,21 @@ export default async function LocaleLayout({ children, params }: LayoutProps) {
 
   const requestHeaders = await headers();
   const nonce = requestHeaders.get("x-nonce") || undefined;
-  const ClientProviderShell = NextIntlClientProvider as unknown as React.ComponentType<{
-    children: React.ReactNode;
-    messages: Record<string, unknown>;
-    locale: string;
-  }>;
+  const ClientProviderShell =
+    NextIntlClientProvider as unknown as React.ComponentType<{
+      children: React.ReactNode;
+      messages: Record<string, unknown>;
+      locale: string;
+    }>;
   return (
     <html lang={locale} dir={isRtl ? "rtl" : "ltr"}>
       <body>
         <ClientProviderShell messages={messages} locale={locale}>
-          {children}
+          <MedusaStoreProvider locale={locale as LOCALS}>
+            <main>{children}</main>
+          </MedusaStoreProvider>
         </ClientProviderShell>
-        
+
         <Script
           src="https://js.stripe.com/v3/"
           strategy="afterInteractive"
