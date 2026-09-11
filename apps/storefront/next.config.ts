@@ -11,6 +11,10 @@ const isDevelopment = process.env.NODE_ENV === "development";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
 
+  compiler: {
+    removeConsole: process.env.NODE_ENV === 'production' ? true : false
+  },
+
   // Explicitly type protocol as 'https' literal to satisfy NextConfig RemotePattern type
   images: {
     remotePatterns: [
