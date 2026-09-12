@@ -16,6 +16,21 @@ env:
   SKIP_ENV_VALIDATION: "true"
 
 jobs:
+  deploy-cms-vercel:
+    name: Trigger Vercel CMS Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Vercel CMS Deploy Hook
+        env:
+          VERCEL_CMS_HOOK: ${{ secrets.VERCEL_CMS_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$VERCEL_CMS_HOOK" ]; then
+            echo "Error: VERCEL_CMS_DEPLOY_HOOK_URL secret is not set inside GitHub Repository Secrets."
+            exit 1
+          fi
+          echo "Triggering Vercel Sanity Studio CMS deployment..."
+          curl -X POST -f "$VERCEL_CMS_HOOK"
+          echo "Vercel Sanity Studio deployment triggered successfully."
   # 1. Run migrations directly against the DB before launching the app
   run-migrations:
     name: Run Database Migrations

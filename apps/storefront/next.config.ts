@@ -5,7 +5,7 @@ import { env } from "./app/env.mjs";
 
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 
-const SANITY_PROJECT_ID = env.NEXT_PUBLIC_SANITY_PROJECT_ID || "4vzx52ot";
+const SANITY_PROJECT_ID = env.NEXT_PUBLIC_SANITY_PROJECT_ID;
 
 const isDevelopment = process.env.NODE_ENV === "development";
 
@@ -21,6 +21,9 @@ const nextConfig: NextConfig = {
 
   // Explicitly type protocol as 'https' literal to satisfy NextConfig RemotePattern type
   images: {
+    dangerouslyAllowSVG: true, 
+    contentDispositionType: "attachment",
+    contentSecurityPolicy: "default-src 'self'; script-src 'none'; object-src 'none'; style-src 'self' 'unsafe-inline';",
     remotePatterns: [
       {
         protocol: "https",
@@ -43,6 +46,9 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "pay.chargily.com",
       },
+      ...(env.NEXT_PUBLIC_STORAGE_BUCKET_HOSTNAME
+        ? [{ protocol: "https" as const, hostname: env.NEXT_PUBLIC_STORAGE_BUCKET_HOSTNAME }]
+        : [])
     ],
   },
   
