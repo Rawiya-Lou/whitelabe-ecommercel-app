@@ -1,11 +1,10 @@
-// apps/storefront/lib/wilayas.ts
 "use server";
 
 import { LOCALS } from "@/i18n/constants";
 import fs from "fs";
 import path from "path";
 
-// 1. Define strict type schemas matching the exact geoalgeria payload shapes
+// Define strict type schemas matching the exact geoalgeria payload shapes
 export interface RawGeoAlgeriaWilaya {
   code: string;
   name: string;
@@ -29,9 +28,8 @@ export interface LocalizedGeographyNode {
 
 const NODE_MODULES_GEO_PATH = path.join(process.cwd(), "node_modules/geoalgeria/data");
 
-/**
- * Safely extracts and types all 69 modern Wilayas from storage without compilation issues.
- */
+// Safely extracts and types all 69 modern Wilayas from storage without compilation issues.
+ 
 export async function getLocalizedWilayas(locale: `${LOCALS}`): Promise<LocalizedGeographyNode[]> {
   try {
     const rawDataPath = path.join(NODE_MODULES_GEO_PATH, "wilayas.json");
@@ -42,7 +40,7 @@ export async function getLocalizedWilayas(locale: `${LOCALS}`): Promise<Localize
 
     return wilayas.map((w: RawGeoAlgeriaWilaya): LocalizedGeographyNode => ({
       code: Number(w.code),
-      name: locale === LOCALS.AR ? w.name_ar : locale === LOCALS.FR ? w.name_fr : w.name_fr,
+      name: locale === LOCALS.AR ? w.name_ar : locale === LOCALS.FR ? w.name_fr : w.name,
     })).sort((a, b) => a.code - b.code);
 
   } catch (error) {
@@ -51,9 +49,8 @@ export async function getLocalizedWilayas(locale: `${LOCALS}`): Promise<Localize
   }
 }
 
-/**
- * Extracts and maps all communes securely using structural type-safe filters.
- */
+// Extracts and maps all communes securely using structural type-safe filters.
+
 export async function getLocalizedCommunes(wilayaCode: number, locale: `${LOCALS}`): Promise<LocalizedGeographyNode[]> {
   try {
     let targetedFile = "communes_w1_w23.json";
@@ -70,7 +67,7 @@ export async function getLocalizedCommunes(wilayaCode: number, locale: `${LOCALS
 
     return filtered.map((c: RawGeoAlgeriaCommune): LocalizedGeographyNode => ({
       code: Number(c.code),
-      name: locale === LOCALS.AR ? c.name_ar : locale === LOCALS.FR ? c.name_fr : c.name_fr,
+      name: locale === LOCALS.AR ? c.name_ar : locale === LOCALS.FR ? c.name_fr : c.name,
     })).sort((a, b) => a.name.localeCompare(b.name, locale));
 
   } catch (error) {

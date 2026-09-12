@@ -38,7 +38,7 @@ export default defineConfig({
           },
           include: [
             "app/**/__tests__/**/*.test.{ts,tsx}",
-            "i18n/__tests__/*.test.{ts,tsx}"
+            "**/__tests__/*.test.{ts,tsx}"
           ],
           exclude: [
             "**/node_modules/**",
