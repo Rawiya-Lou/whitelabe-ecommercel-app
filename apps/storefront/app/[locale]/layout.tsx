@@ -6,6 +6,7 @@ import { routing } from "@/i18n/routing";
 import { LOCALS } from "../../i18n/constants";
 import Script from "next/script";
 import { headers } from "next/headers";
+import { getLocaleDirection } from "@/utils/locale";
 import { AlgerianDeliveryProvider } from "@/providers/algerian-delivery-provider";
 import { MedusaStoreProvider } from "@/providers/store-provider";
 export { generateMetadata } from "./metadata";
@@ -22,7 +23,7 @@ export default async function LocaleLayout({ children, params }: LayoutProps) {
     notFound();
   }
 
-  const isRtl = locale === LOCALS.AR;
+  const direction = getLocaleDirection(locale);
   let messages = {};
 
   try {
@@ -43,7 +44,7 @@ export default async function LocaleLayout({ children, params }: LayoutProps) {
       locale: string;
     }>;
   return (
-    <html lang={locale} dir={isRtl ? "rtl" : "ltr"}>
+    <html lang={locale} dir={direction} className="scroll-smooth">
       <body>
         <ClientProviderShell messages={messages} locale={locale}>
           <MedusaStoreProvider locale={locale as LOCALS}>
