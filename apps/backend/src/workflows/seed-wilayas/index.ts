@@ -4,7 +4,8 @@ import { seedWilayasStep } from "./steps";
 export const seedWilayasWorkflow = createWorkflow(
   "seed-wilayas",
   () => {
-    const result = seedWilayasStep();
+    const result = seedWilayasStep({});
+    
     return new WorkflowResponse(result);
   }
 );

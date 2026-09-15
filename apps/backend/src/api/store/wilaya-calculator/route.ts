@@ -88,6 +88,7 @@ export async function POST(
         ar: rate.wilaya_name_ar
       },
       commune_name_fr,
+      commune_name_ar,
       delivery_mode,
       shipping_cost: finalPrice,
       is_overridden: isOverridden,

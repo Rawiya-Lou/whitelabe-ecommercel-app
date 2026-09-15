@@ -1,13 +1,16 @@
 import { createStep, StepResponse } from "@medusajs/framework/workflows-sdk";
-import { ContainerRegistrationKeys } from "@medusajs/framework/utils";
-// geoalgeria exposes its core array properties directly on the default package instance
-import geoalgeria from "geoalgeria"; 
+import { ContainerRegistrationKeys, MedusaError, Modules } from "@medusajs/framework/utils";
+import type { MedusaContainer } from "@medusajs/framework/types";
+import fs from "fs";
+import path from "path";
 
-interface GeoAlgeriaWilaya {
-  wilaya_code: string | number;
-  wilaya_name_fr: string;
-  wilaya_name_ar: string;
+interface RawGeoAlgeriaWilaya {
+  code: string;
+  name: string;
+  name_ar: string;
+  name_fr: string;
 }
+
 const wilayaEnglishNames: Record<number, string> = {
   1: "Adrar", 2: "Chlef", 3: "Laghouat", 4: "Oum El Bouaghi", 5: "Batna",
   6: "Béjaïa", 7: "Biskra", 8: "Béchar", 9: "Blida", 10: "Bouira",
@@ -26,32 +29,58 @@ const wilayaEnglishNames: Record<number, string> = {
   68: "Ouled Djellal El Djadid", 69: "Souk Ahras El Djadid"
 };
 
-export const seedWilayasStep = createStep(
-  "seed-wilayas",
-  async (_input, { container }) => {
-    const dbService = container.resolve(ContainerRegistrationKeys.QUERY);
-    const logger = container.resolve(ContainerRegistrationKeys.LOGGER);
-   const activeModuleService = container.resolve("wilaya_rate_module_service" as any);
+export async function seedWilayasStepHandler(
+  _input: Record<string, unknown>,
+  { container }: { container: MedusaContainer }
+): Promise<StepResponse<{ success: boolean; count: number; }>> {
+  const dbService = container.resolve(ContainerRegistrationKeys.QUERY);
+  const logger = container.resolve(ContainerRegistrationKeys.LOGGER);
+  const activeModuleService = container.resolve("wilaya_rate_module_service" as any);
+
+  const createdRecords: string[] = [];
+
+  try {
+         const regionModuleService = container.resolve(Modules.REGION);
 
 
-    const geoWilayas = geoalgeria.wilayas as unknown as GeoAlgeriaWilaya[];
+    const [existingRegions] = await regionModuleService.listAndCountRegions({
+      currency_code: "dzd"
+    });
 
-    logger.info(`Injecting localized structural assets for ${geoWilayas.length} Algerian regions...`);
+     if (existingRegions.length === 0) {
+      logger.info("Initializing official Algerian Region (DZD) context parameters...");
+      await regionModuleService.createRegions({
+        name: "Algeria",
+        currency_code: "dzd",
+        countries: ["dz"],
+      });
+    }
 
-    const createdRecords: string[] = [];
+    const packageDataPath = path.join(process.cwd(), "node_modules", "geoalgeria", "data", "wilayas.json");
+    
+    if (!fs.existsSync(packageDataPath)) {
+      throw new MedusaError(
+        MedusaError.Types.INVALID_DATA,
+        `The target data path does not exist: ${packageDataPath}`
+      );
+    }
 
-    // 3. Process loop with full 3-language mapping injection values
+    const rawData = fs.readFileSync(packageDataPath, "utf-8");
+    const geoWilayas = JSON.parse(rawData) as RawGeoAlgeriaWilaya[];
+
+    logger.info(`Injecting localized assets for ${geoWilayas.length} validated Algerian regions...`);
+
     for (const wilaya of geoWilayas) {
-      const code = Number(wilaya.wilaya_code);
-      const translatedEnName = wilayaEnglishNames[code] || wilaya.wilaya_name_fr;
+      const code = Number(wilaya.code);
+      const translatedEnName = wilayaEnglishNames[code] || wilaya.name_fr;
 
       const basePayload = {
         wilaya_code: code,
-        wilaya_name_en: translatedEnName,       
-        wilaya_name_fr: wilaya.wilaya_name_fr,   
-        wilaya_name_ar: wilaya.wilaya_name_ar,   
-        home_price: 70000,                       
-        desk_price: 40000,                       
+        wilaya_name_en: translatedEnName,
+        wilaya_name_fr: wilaya.name_fr,
+        wilaya_name_ar: wilaya.name_ar,
+        home_price: 70000, 
+        desk_price: 40000,
         is_active: true
       };
 
@@ -69,5 +98,20 @@ export const seedWilayasStep = createStep(
 
     logger.info(`Successfully mapped and committed ${createdRecords.length} new structural Wilaya entries.`);
     return new StepResponse({ success: true, count: createdRecords.length });
+
+  } catch (error) {
+    const isMedusaError = error instanceof MedusaError;
+    const errorMessage = isMedusaError ? error.message : String(error);
+    const cleanErrorObject = isMedusaError 
+      ? error 
+      : new MedusaError(MedusaError.Types.DB_ERROR, errorMessage);
+
+    logger.error(`[SEED_WILAYAS_STEP_CRASH]: ${errorMessage}`, cleanErrorObject);
+    return new StepResponse({ success: false, count: 0 });
   }
-);
+}
+
+/**
+ * Standard compiled Medusa v2 Workflow orchestration step
+ */
+export const seedWilayasStep = createStep("seed-wilayas", seedWilayasStepHandler);
