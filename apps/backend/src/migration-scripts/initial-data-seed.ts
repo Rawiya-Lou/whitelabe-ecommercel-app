@@ -22,6 +22,8 @@ import {
   linkSalesChannelsToApiKeyWorkflow,
   linkSalesChannelsToStockLocationWorkflow,
 } from "@medusajs/medusa/core-flows";
+import { seedWilayasWorkflow } from "../workflows/seed-wilayas";
+
 
 export default async function initial_data_seed({
   container,
@@ -836,4 +838,8 @@ export default async function initial_data_seed({
   });
 
   logger.info("Finished seeding inventory levels data.");
+
+  await seedWilayasWorkflow(container).run({
+    input: {},
+  });
 }

@@ -25,6 +25,11 @@ module.exports = defineConfig({
       cookieSecret: process.env.COOKIE_SECRET,
     },
   },
+   modules: [
+    {
+      resolve: "./src/modules/algerian-logistics",
+    },
+  ],
   admin: {
     disable: process.env.MEDUSA_ADMIN_DASHBOARD_DISABLED === "true",
     path: "/app",
