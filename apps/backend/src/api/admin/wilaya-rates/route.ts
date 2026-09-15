@@ -1,16 +1,17 @@
 import type { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import upsertWilayaRateWorkflow from "../../../workflows/upsert-wilaya-rate"
-import type { AdminWilayaRateUpsertType } from "./validators"
+import { adminWilayaRateUpsertSchema } from "./validators"
 
 export async function POST(
-  req: AuthenticatedMedusaRequest<AdminWilayaRateUpsertType>,
+  req: AuthenticatedMedusaRequest,
   res: MedusaResponse
 ): Promise<void> {
-  // Execute the standard workflow using req.scope
-  const { result } = await upsertWilayaRateWorkflow(req.scope).run({
-    input: req.validatedBody
-  })
 
-  // Destructure result payload returned by WorkflowResponse
-  res.status(result.status).json({ wilaya_rate: result.wilaya_rate })
+  const validatedData = adminWilayaRateUpsertSchema.parse(req.body)
+  const { result } = await upsertWilayaRateWorkflow(req.scope).run({
+    input: validatedData
+  })
+  res.status(result.status).json({ 
+    wilaya_rate: result.wilaya_rate 
+  })
 }
