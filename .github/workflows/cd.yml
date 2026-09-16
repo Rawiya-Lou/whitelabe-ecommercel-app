@@ -53,6 +53,10 @@ jobs:
         working-directory: ./apps/backend
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          STRIPE_API_KEY: "sk_test_CI_MOCK_SECRET_KEY"
+          STRIPE_WEBHOOK_SECRET: "whsec_CI_MOCK_WEBHOOK_SECRET"
+          
+
         run: npm run build && npx medusa db:migrate
 
   # 2. Trigger Render to pull, use build-backend.js, and host
