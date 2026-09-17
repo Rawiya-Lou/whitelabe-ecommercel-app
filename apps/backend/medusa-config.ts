@@ -2,7 +2,7 @@ import { loadEnv, defineConfig } from "@medusajs/framework/utils";
 
 loadEnv(process.env.NODE_ENV || "development", process.cwd());
 
-module.exports = defineConfig({
+const config = defineConfig({
   projectConfig: {
     databaseUrl: process.env.DATABASE_URL,
     redisUrl: process.env.REDIS_URL || undefined,
@@ -12,6 +12,9 @@ module.exports = defineConfig({
           rejectUnauthorized: false,
         },
       },
+       keepAlive: true,
+      statement_timeout: 60000, // Extend maximum execution query allowance to 60s
+      idle_in_transaction_session_timeout: 60000,
     },
     cookieOptions: {
       sameSite: "lax",
@@ -25,6 +28,7 @@ module.exports = defineConfig({
       cookieSecret: process.env.COOKIE_SECRET,
     },
   },
+
   modules: [
     {
       resolve: "@medusajs/medusa/payment",
@@ -39,10 +43,37 @@ module.exports = defineConfig({
               capture: true,
             },
           },
+
+          {
+            resolve: "./src/modules/payment-chargily",
+            id: "chargily",
+            options: {
+              secretKey: process.env.CHARGILY_SECRET_KEY,
+              successUrl: `${process.env.STORE_CORS}/checkout/confirmed`,
+              failureUrl: `${process.env.STORE_CORS}/checkout/failed`,
+              isTestMode: process.env.CHARGILY_IS_TEST_MODE
+                ? process.env.CHARGILY_IS_TEST_MODE === "true"
+                : true,
+            },
+          },
         ],
       },
     },
     {
+      resolve: "@medusajs/medusa/fulfillment",
+       options: {
+        providers: [
+          {
+            resolve: "@medusajs/medusa/fulfillment-manual",
+            id: "manual_manual",
+          },
+        ],
+      },
+    
+
+    },
+    {
+     
       resolve: "./src/modules/algerian-logistics",
     },
   ],
@@ -51,3 +82,5 @@ module.exports = defineConfig({
     path: "/app",
   },
 });
+
+module.exports = config;

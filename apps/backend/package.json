@@ -15,7 +15,7 @@
   "scripts": {
     "postbuild": "node ./scripts/postbuild.mjs",
     "build": "medusa build && npm run postbuild",
-    "predeploy": "medusa db:migrate",
+    "predeploy": "medusa db:migrate && medusa exec ./src/migration-scripts/initial-data-seed.ts",
     "start": "medusa start",
     "dev": "medusa develop",
     "lint": "medusa lint",
@@ -27,6 +27,7 @@
     "test:watch": "vitest --config ./vitest.config.mts"
   },
   "dependencies": {
+    "@chargily/chargily-pay": "^2.1.0",
     "@medusajs/admin-sdk": "2.19.0",
     "@medusajs/admin-shared": "2.19.0",
     "@medusajs/caching": "2.19.0",

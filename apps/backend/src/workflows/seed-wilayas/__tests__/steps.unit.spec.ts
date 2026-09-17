@@ -15,12 +15,12 @@ interface QueryGraphPayload {
 }
 
 interface MockModuleService {
-  create: MockedFunction<(payload: Record<string, unknown>) => Promise<{ id: string }>>;
+  createWilayaRates: MockedFunction<(payload: unknown[]) => Promise<Array<{ id: string }>>>;
 }
 
 interface MockRegionService {
   listAndCountRegions: MockedFunction<(filters: Record<string, unknown>) => Promise<[Array<{ id: string }>, number]>>;
-  createRegions: MockedFunction<(payload: Record<string, unknown>) => Promise<{ id: string }>>;
+  createRegions: MockedFunction<(payload: Record<string, unknown>) => Promise<Array<{ id: string }>>>;
 }
 
 describe("seedWilayasStepHandler", () => {
@@ -61,17 +61,19 @@ describe("seedWilayasStepHandler", () => {
       http: vi.fn(),
     };
 
+    // Updated to match the array response return type of the generated MedusaService method
     mockModuleService = {
-      create: vi.fn().mockResolvedValue({ id: "rec_123" }),
+      createWilayaRates: vi.fn().mockResolvedValue([{ id: "rec_123" }]),
     };
 
+    // Corrected to accurately return a tuple structure [regionsArray, count]
     mockRegionService = {
-      listAndCountRegions: vi.fn().mockResolvedValue([[], 0]), // Default: Region does not exist yet
-      createRegions: vi.fn().mockResolvedValue({ id: "reg_dzd_123" }),
+      listAndCountRegions: vi.fn().mockResolvedValue([[], 0]), 
+      createRegions: vi.fn().mockResolvedValue([{ id: "reg_dzd_123" }]),
     };
 
     mockContainer = {
-      resolve: vi.fn().mockImplementation((key: unknown) => {
+      resolve: vi.fn().mockImplementation((key: string) => {
         if (key === ContainerRegistrationKeys.QUERY) return mockDbService;
         if (key === ContainerRegistrationKeys.LOGGER) return mockLogger;
         if (key === Modules.REGION || key === "regionService") return mockRegionService;
@@ -96,7 +98,7 @@ describe("seedWilayasStepHandler", () => {
     expect(mockRegionService.listAndCountRegions).toHaveBeenCalledTimes(1);
     expect(mockRegionService.createRegions).toHaveBeenCalledTimes(1);
     expect(mockDbService.graph).toHaveBeenCalledTimes(2);
-    expect(mockModuleService.create).toHaveBeenCalledTimes(2);
+    expect(mockModuleService.createWilayaRates).toHaveBeenCalledTimes(2);
     
     expect(response).toBeInstanceOf(StepResponse);
     expect(response.output).toEqual({
@@ -113,7 +115,7 @@ describe("seedWilayasStepHandler", () => {
 
     const response = await seedWilayasStepHandler({}, { container: mockContainer });
 
-    expect(mockModuleService.create).toHaveBeenCalledTimes(1);
+    expect(mockModuleService.createWilayaRates).toHaveBeenCalledTimes(1);
     expect(response.output).toEqual({
       success: true,
       count: 1,
