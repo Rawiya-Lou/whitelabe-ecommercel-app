@@ -33,6 +33,12 @@
     "seed": {
       "outputs": []
     },
+    "predeploy":{
+      "dependsOn": ["^build"],
+      "cache": false
+      
+
+    },
 
     "db:migrate": {
       "cache": false

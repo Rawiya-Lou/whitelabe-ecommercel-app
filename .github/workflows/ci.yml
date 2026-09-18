@@ -20,6 +20,7 @@ env:
   NEXT_PUBLIC_SANITY_PROJECT_ID: "mockid12"
   NEXT_PUBLIC_SANITY_DATASET: "testdataset"
   NEXT_PUBLIC_STRIPE_KEY: "pk_test_CI_MOCK_KEY_FOR_BUILD_PURPOSES" 
+  
 
 jobs:
   # JOB 1: Detect Changed Files (Path Filtering)
@@ -199,6 +200,24 @@ jobs:
         working-directory: ./apps/backend
 
         run: npx turbo run build --filter=@dtc/backend
+      - name: Validate Whitelabel Database Seeding Contracts
+        working-directory: ./apps/backend
+        env: 
+          DATABASE_URL: ${{ secrets.NEON_CI_DATABASE_URL}}
+          MEDUSA_ADMIN_DASHBOARD_DISABLED: "true"
+          ACTIVE_SHIPPING_PROVIDER: "manual_manual"
+          STORE_WAREHOUSE_COUNTRY: "DZ"
+          STORE_NAME: "CI Validation Instance"
+          STRIPE_API_KEY: "sk_test_CI_MOCK_KEY"
+          STRIPE_WEBHOOK_SECRET: "whsec_CI_MOCK_SECRET"
+          CHARGILY_SECRET_KEY: "test_sk_CI_MOCK_KEY"
+          CHARGILY_WEBHOOK_SECRET: "test_wh_CI_MOCK_SECRET"
+          CHARGILY_IS_TEST_MODE: "true"
+          JWT_SECRET: "super-secret-ci-jwt-token-string-32-chars-long"
+          COOKIE_SECRET: "super-secret-ci-cookie-token-string-32-chars-long"
+        run: |
+          npm run predeploy  
+
 
   cms-ci:
     name: CMS (Sanity Studio) - Quality & Build
