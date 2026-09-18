@@ -60,7 +60,6 @@ jobs:
           STRIPE_API_KEY: "sk_test_CI_MOCK_SECRET_KEY"
           STRIPE_WEBHOOK_SECRET: "whsec_CI_MOCK_WEBHOOK_SECRET"
           CHARGILY_SECRET_KEY: "test_sk_mock_secret_key"
-          CHARGILY_WEBHOOK_SECRET: "test_wh_mock_webhook_secret"
           CHARGILY_IS_TEST_MODE: "true"
           
 

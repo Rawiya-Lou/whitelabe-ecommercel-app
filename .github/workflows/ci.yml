@@ -211,7 +211,6 @@ jobs:
           STRIPE_API_KEY: "sk_test_CI_MOCK_KEY"
           STRIPE_WEBHOOK_SECRET: "whsec_CI_MOCK_SECRET"
           CHARGILY_SECRET_KEY: "test_sk_CI_MOCK_KEY"
-          CHARGILY_WEBHOOK_SECRET: "test_wh_CI_MOCK_SECRET"
           CHARGILY_IS_TEST_MODE: "true"
           JWT_SECRET: "super-secret-ci-jwt-token-string-32-chars-long"
           COOKIE_SECRET: "super-secret-ci-cookie-token-string-32-chars-long"
