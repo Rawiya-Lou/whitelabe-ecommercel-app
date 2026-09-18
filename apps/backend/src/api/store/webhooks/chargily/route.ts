@@ -1,4 +1,5 @@
 import { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
+import { ContainerRegistrationKeys } from "@medusajs/framework/utils";
 import crypto from "crypto";
 
 interface ChargilyPayload {
@@ -15,19 +16,26 @@ export async function POST(
   req: MedusaRequest,
   res: MedusaResponse,
 ): Promise<void> {
-  const signature = req.headers["signature"] as string;
+  const logger = req.scope.resolve(ContainerRegistrationKeys.LOGGER)
+
+
+  const signature = req.headers["signature"] as string | undefined;
 
   const secretKey = process.env.CHARGILY_SECRET_KEY;
 
   if (!signature || !secretKey) {
+    logger.warn("Unauthorized webhook attempt: Missing signature, or secret configuration parameters.")
+
     res
       .status(400)
-      .send("Security validation aborted: Missing verification credentials.");
+      .send("Unauthorized: Verification configurations are absent.");
     return;
   }
 
-  const rawBody = req.rawBody?.toString();
+  const rawBody = req.rawBody as string | Buffer | undefined;
   if (!rawBody) {
+      logger.warn("Unauthorized webhook attempt: Missing body configuration parameters.")
+
     res
       .status(400)
       .send("Validation aborted: Request payload string is empty.");
@@ -35,44 +43,49 @@ export async function POST(
   }
 
   // Execute Strict HMAC SHA-256 Cryptographic Signature Verification Check
+      const stringBody = typeof rawBody === "string" ? rawBody : rawBody.toString("utf8")
+
   const computedSignature = crypto
     .createHmac("sha256", secretKey)
-    .update(rawBody)
+    .update(stringBody)
     .digest("hex");
 
-  if (computedSignature !== signature) {
-    console.error("CRYPTOGRAPHIC THREAT BLOCKED: Webhook signature mismatch.");
+   const signatureBuffer = Buffer.from(signature, "hex");
+  const computedBuffer = Buffer.from(computedSignature, "hex");
+
+  if (signatureBuffer.length !== computedBuffer.length || !crypto.timingSafeEqual(signatureBuffer, computedBuffer)) {
+    logger.error("CRYPTOGRAPHIC MITM ATTACK BLOCKED: Webhook signature validation mismatch.");
     res.status(401).send("Unauthorized: Fingerprint verification failed.");
     return;
   }
 
-  const event = JSON.parse(rawBody) as ChargilyPayload;
+  
 
-  // Resolve Medusa v2's native Webhook Receiver Service
+ 
+ 
+
+
+  try {
+    const event = JSON.parse(stringBody) as ChargilyPayload;
+    
   const webhookReceiverService = req.scope.resolve(
     "webhookReceiverService" as any,
   );
-
-  try {
-    console.log(
-      `[CHARGILY V2] Processing verified payload event: [${event.type}]`,
-    );
-
-    // 5. Route the payload straight through the official webhook receiver layer
-    await webhookReceiverService.processPaymentWebhook({
+  await webhookReceiverService.processPaymentWebhook({
       provider: "chargily",
       payload: event,
       headers: req.headers,
     });
 
+
     switch (event.type) {
       case "checkout.paid":
-        console.log(
+        logger.info(
           `Payment Succeeded: Session [${event.data.id}] captured successfully.`,
         );
         break;
       case "checkout.failed":
-        console.warn(
+        logger.warn(
           `Payment Failed: Session [${event.data.id}] was rejected or canceled.`,
         );
         break;
@@ -82,7 +95,7 @@ export async function POST(
   } catch (error: unknown) {
     const errorMessage =
       error instanceof Error ? error.message : "Unknown processing error";
-    console.error("[CHARGILY WEBHOOK ROUTE EXCEPTION]:", errorMessage);
+    logger.error("[CHARGILY WEBHOOK ROUTE EXCEPTION]:" + errorMessage);
     res.status(500).send(`Internal execution pipeline crash: ${errorMessage}`);
   }
 }

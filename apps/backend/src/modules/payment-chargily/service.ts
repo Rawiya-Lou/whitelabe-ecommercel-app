@@ -44,7 +44,7 @@ type ChargilyOptions = {
   isTestMode?: boolean
 }
 
-type MedusaPaymentContext = {
+export type MedusaPaymentContext = {
   id?: string
   email?: string
   [key: string]: unknown
@@ -67,7 +67,6 @@ type ChargilyCheckoutResponse = {
   metadata: Record<string, unknown> | null
   success_url: string
   failure_url: string
-  webhook_endpoint: string | null
   payment_method: string | null
   invoice_id: string | null
   customer_id: string | null
@@ -94,8 +93,8 @@ class ChargilyPaymentProvider extends AbstractPaymentProvider<ChargilyOptions> {
     this.options_ = options
     // SECURE: Points to the authentic Chargily REST endpoints for v2 API
     this.baseUrl = options.isTestMode 
-      ? "https://pay.chargily.net/test" 
-      : "https://pay.chargily.net"
+      ? "https://pay.chargily.net/test/api/v2" 
+      : "https://pay.chargily.net/api/v2"
   }
 
   async initiatePayment(input: InitiatePaymentInput): Promise<InitiatePaymentOutput> {
@@ -251,13 +250,17 @@ class ChargilyPaymentProvider extends AbstractPaymentProvider<ChargilyOptions> {
     const data = payload.data as unknown as ChargilyDataEvent
 
     try { 
+      const incomingAmount = data.data?.amount;
+      const verifiedAmount = (typeof incomingAmount !== "number" || isNaN(incomingAmount)) 
+        ? 0 
+        : incomingAmount;
       switch(data.type) {
         case "checkout.paid":
           return {
             action: "authorized",
             data: {
               session_id: data.data?.id || "",
-              amount: new BigNumber(data.data?.amount ?? 0)
+              amount: new BigNumber(verifiedAmount)
             }
           }
         default:
@@ -270,11 +273,17 @@ class ChargilyPaymentProvider extends AbstractPaymentProvider<ChargilyOptions> {
           }
       }
     } catch (e) {
+      let fallbackSessionId = "";
+      try {
+        fallbackSessionId = data?.data?.id || "";
+      } catch {
+        fallbackSessionId = "";
+      }
       return {
         action: "failed",
         data: {
-          session_id: data.data?.id || "",
-          amount: new BigNumber(data.data?.amount ?? 0)
+          session_id: fallbackSessionId,
+          amount: new BigNumber(0)
         }
       }
     }
