@@ -4,9 +4,9 @@ import {
   StepResponse, 
   WorkflowResponse 
 } from "@medusajs/framework/workflows-sdk"
-import { ALGERIAN_LOGISTICS_MODULE } from "../modules/algerian-logistics"
-import AlgerianLogisticsModuleService from "../modules/algerian-logistics/service"
-import type { AdminWilayaRateUpsertType } from "../api/admin/wilaya-rates/validators"
+import { ALGERIAN_LOGISTICS_MODULE } from "../../modules/algerian-logistics"
+import AlgerianLogisticsModuleService from "../../modules/algerian-logistics/service"
+import type { AdminWilayaRateUpsertType } from "../../api/admin/wilaya-rates/validators"
 
 type UpsertWilayaRateInput = AdminWilayaRateUpsertType
 

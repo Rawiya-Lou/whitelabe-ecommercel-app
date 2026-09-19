@@ -1,42 +1,44 @@
 import { createStep, StepResponse } from "@medusajs/framework/workflows-sdk";
-import { ContainerRegistrationKeys } from "@medusajs/framework/utils";
+import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils";
+import { ProductInspectionDTO } from "../types";
 
 interface InspectInput {
-  handle: string;
-  sku: string;
-}
-
-export interface InspectionResult {
-  exists: boolean;
-  productId?: string;
-  inventoryItemId?: string;
+  productSlug: string;
+  variantSku: string;
 }
 
 export const inspectExistingProductStep = createStep(
   "inspect-existing-product",
-  async (input: InspectInput, { container }): Promise<StepResponse<InspectionResult>> => {
+  async (
+    input: InspectInput,
+    { container },
+  ): Promise<StepResponse<ProductInspectionDTO>> => {
+    const logger = container.resolve(ContainerRegistrationKeys.LOGGER);
+
     const query = container.resolve(ContainerRegistrationKeys.QUERY);
+    const inventoryModuleService = container.resolve(Modules.INVENTORY);
 
     // Concurrently verify both product handles and inventory item variants
     const { data: products } = await query.graph({
       entity: "product",
-      fields: ["id", "handle"],
-      filters: { handle: input.handle },
+      fields: ["id", "handle", "variants.id", "variants.sku"],
+      filters: { handle: [input.productSlug.toLowerCase().trim()] },
     });
 
-    const { data: inventoryItems } = await query.graph({
-      entity: "inventory_item",
-      fields: ["id", "sku"],
-      filters: { sku: input.sku },
+    const product = products?.[0];
+    const [inventoryItem] = await inventoryModuleService.listInventoryItems({
+      sku: input.variantSku.trim(),
     });
 
-    const existingProduct = products?.[0];
-    const existingInventory = inventoryItems?.[0];
+    const variantId = product?.variants?.[0]?.id;
+    logger.info(`Inspection Matrix: Product Exists = ${!!product} | Inventory Item Exists = ${!!inventoryItem}`);
+
 
     return new StepResponse({
-      exists: !!existingProduct,
-      productId: existingProduct?.id,
-      inventoryItemId: existingInventory?.id,
+      productExists: !!product,
+      productId: product?.id,
+      inventoryItemId: inventoryItem?.id,
+      variantId,
     });
-  }
+  },
 );

@@ -1,144 +1,158 @@
 import { 
   createWorkflow, 
-  WorkflowResponse, 
+  WorkflowResponse,  
   transform, 
   when 
 } from "@medusajs/framework/workflows-sdk";
 import { 
   createProductsWorkflow, 
-  updateProductsWorkflow,
-  createInventoryItemsWorkflow,
-  createInventoryLevelsWorkflow
+  updateProductsWorkflow
 } from "@medusajs/medusa/core-flows";
-import { 
-  SanitySyncWorkflowInput, 
-  MedusaCreatedProductResult, 
-  MedusaCreatedInventoryItemResult 
-} from "./types";
+import { SanitySyncWorkflowInput, SyncWorkflowResult, WorkflowVariantDTO, WorkflowProductDTO } from "./types";
+
 import { getSystemDefaultsStep } from "./steps/system-defaults";
 import { inspectExistingProductStep } from "./steps/inspect-existing-product";
 import { updateInventoryLevelsStep } from "./steps/update-inventory-levels";
 import { linkVariantToInventoryStep } from "./steps/link-variant-to-inventory";
 import { syncProductCategoriesStep } from "./steps/sync-product-categories";
+import { createFreshInventoryStep } from "./steps/create-fresh-inventory";
 import { mapSanityToMedusaProduct } from "./utils/mappers";
 
 export const sanitySyncProductWorkflow = createWorkflow(
   "sanity-sync-product",
-  (input: SanitySyncWorkflowInput) => {
-    // 1. Fetch system metadata infrastructure defaults
+  (input: SanitySyncWorkflowInput): WorkflowResponse<SyncWorkflowResult> => {
+    
     const systemDefaults = getSystemDefaultsStep();
 
-    // 2. Extract out slugs and map or auto-create corresponding categories
     const rawCategories = transform({ input }, (data) => data.input.productData?.categories ?? []);
     const verifiedCategoryIds = syncProductCategoriesStep({ categories: rawCategories });
 
-    // 3. Prepare payload parameters safely using a declarative data transform
-    const lookupParams = transform({ input }, (data) => ({
-      handle: data.input.productData?.slug ?? "",
-      sku: `SANITY-${data.input.productData?._id.toUpperCase() ?? ""}`,
+    const variantSkuToken = transform({ input }, (data) => {
+      const id = data.input.productData?._id ?? "";
+      return `SANITY-${id.toUpperCase()}`;
+    });
+
+    const lookupParams = transform({ input, variantSku: variantSkuToken }, (data) => ({
+      productSlug: data.input.productData?.slug ?? "",
+      variantSku: data.variantSku,
     }));
 
-    // 4. Inspect existing database records across Product & Inventory layers
     const inspection = inspectExistingProductStep(lookupParams);
 
-    when(inspection, (res) => res.exists)
-      .then(() => {
-        const updatePayload = transform({ input, inspection, verifiedCategoryIds }, (data) => ({
-          products: [{
-            id: data.inspection.productId!,
-            title: data.input.productData!.title,
-            description: data.input.productData!.description,
-            weight: data.input.productData!.weightGrams ?? 0,
-            category_ids: data.verifiedCategoryIds, // Sync Category Updates
-          }]
-        }));
+    // =========================================================================
+    // BRANCH A: STABLE UPDATE ENGINE EXECUTION
+    // =========================================================================
+    when(inspection, (res) => res.productExists).then(() => {
+      const updatePayload = transform(
+        { input, inspection, verifiedCategoryIds },
+        (data) => ({
+          products: [
+            {
+              id: data.inspection.productId!,
+              title: data.input.productData!.title.en,         
+              description: data.input.productData!.description.en, 
+              weight: data.input.productData!.weightGrams ?? 0,
+              category_ids: data.verifiedCategoryIds,
+            },
+          ],
+        }) 
+      );
 
-        updateProductsWorkflow.run({ input: updatePayload });
+      updateProductsWorkflow.runAsStep({ input: updatePayload });
+    });
 
-        const inventoryPayload = transform({ input, inspection, systemDefaults }, (data) => ({
-          inventoryItemId: data.inspection.inventoryItemId!,
-          locationId: data.systemDefaults.stockLocationId!,
-          stockedQuantity: data.input.productData!.stockCount,
-        }));
+    const inventoryUpdateParams = transform(
+      { input, inspection, systemDefaults },
+      (data) => ({
+        shouldExecute:
+          data.inspection.productExists &&
+          !!data.inspection.inventoryItemId &&
+          !!data.systemDefaults.stockLocationId,
+        inventoryItemId: data.inspection.inventoryItemId ?? "",
+        stockLocationId: data.systemDefaults.stockLocationId ?? "",
+        stockedQuantity: data.input.productData?.stockCount ?? 0,
+      }),
+    );
 
-        when(inventoryPayload, (inv) => !!inv.inventoryItemId && !!inv.locationId)
-          .then(() => {
-            updateInventoryLevelsStep(inventoryPayload);
-          });
-      });
+    when(inventoryUpdateParams, (inv) => inv.shouldExecute).then(() => {
+      updateInventoryLevelsStep(inventoryUpdateParams);
+    });
 
-
-    when(inspection, (res) => !res.exists)
-      .then(() => {
-        const createPayload = transform({ input, systemDefaults, verifiedCategoryIds }, (data) => {
+    // =========================================================================
+    // BRANCH B: ATOMIC CREATION ENGINE EXECUTION (ENCAPSULATED STEP)
+    // =========================================================================
+    when(inspection, (res) => !res.productExists).then(() => {
+      const createPayload = transform(
+        { input, systemDefaults, verifiedCategoryIds },
+        (data) => {
           if (!data.input.productData) {
             return { products: [] };
           }
           const mappedProduct = mapSanityToMedusaProduct(
             data.input.productData,
-            data.verifiedCategoryIds, // Bind Verified Category IDs cleanly
+            data.verifiedCategoryIds,
             data.systemDefaults.shippingProfileId,
-            data.systemDefaults.salesChannelId
+            data.systemDefaults.salesChannelId,
           );
-          return { products: [mappedProduct] };
-        });
-
-        // 1. Create the Product and Variant models
-        const createdProducts = createProductsWorkflow.run({ input: createPayload });
-
-        // 2. Safely transform created products to inventory payload types
-        const inventoryItemPayload = transform({ input, createdProducts }, (data) => {
-          const productsList = data.createdProducts as unknown as MedusaCreatedProductResult[];
-          const targetVariant = productsList?.[0]?.variants?.[0];
-          
           return {
-            inventory_items: [{
-              sku: targetVariant?.sku ?? "",
-              title: `${data.input.productData?.title ?? "CMS Item"} Inventory`,
-              requires_shipping: true,
-            }]
+            products: [
+              {
+                ...mappedProduct,
+                sales_channels: data.systemDefaults.salesChannelId
+                  ? [{ id: data.systemDefaults.salesChannelId }]
+                  : [],
+              },
+            ],
           };
-        });
+        },
+      );
 
-        // 3. Create the Inventory Item asset record
-        const createdInventoryItems = createInventoryItemsWorkflow.run({ input: inventoryItemPayload });
-
-        // 4. Concurrently tie the relationships and update real-time stock levels
-        const workflowWiringPayload = transform(
-          { createdProducts, createdInventoryItems, systemDefaults, input }, 
-          (data) => {
-            const productsList = data.createdProducts as unknown as MedusaCreatedProductResult[];
-            const inventoryList = data.createdInventoryItems as unknown as MedusaCreatedInventoryItemResult[];
-            
-            const variant = productsList?.[0]?.variants?.[0];
-            const inventoryItem = inventoryList?.[0];
-
-            return {
-              variantId: variant?.id ?? "",
-              inventoryItemId: inventoryItem?.id ?? "",
-              locationId: data.systemDefaults.stockLocationId ?? "",
-              stockedQuantity: data.input.productData?.stockCount ?? 0,
-            };
-          }
-        );
-
-        // 5. Execute cross-module Remote Link binding step and set location stock counts
-        linkVariantToInventoryStep({
-          variantId: workflowWiringPayload.variantId,
-          inventoryItemId: workflowWiringPayload.inventoryItemId
-        });
-
-        const inventoryLevelPayload = transform({ workflowWiringPayload }, (data) => ({
-          inventory_levels: [{
-            inventory_item_id: data.workflowWiringPayload.inventoryItemId,
-            location_id: data.workflowWiringPayload.locationId,
-            stocked_quantity: data.workflowWiringPayload.stockedQuantity,
-          }]
-        }));
-
-        createInventoryLevelsWorkflow.run({ input: inventoryLevelPayload });
+      const createdProductsResult = createProductsWorkflow.runAsStep({
+        input: createPayload,
       });
 
-    return new WorkflowResponse({ success: true });
+      // Invoke custom step to encapsulate inner core inventory workflows safely
+      const inventorySyncResult = createFreshInventoryStep(
+        transform({ inspection, variantSku: variantSkuToken, input, systemDefaults }, (data) => ({
+          inventoryItemExists: !!data.inspection.inventoryItemId,
+          preexistingInventoryItemId: data.inspection.inventoryItemId ?? "",
+          sku: data.variantSku,
+          title: `${data.input.productData?.title?.en ?? "CMS Item"} Inventory`,
+          stockLocationId: data.systemDefaults.stockLocationId ?? "",
+          quantity: data.input.productData?.stockCount ?? 0
+        }))
+      );
+
+      const workflowWiringPayload = transform(
+        {
+          createdProductsResult,
+          inventorySyncResult,
+          systemDefaults,
+          input,
+        },
+        (data) => {
+          const productsList = (data.createdProductsResult || []) as unknown as WorkflowProductDTO[];
+          const variant = productsList?.[0]?.variants?.[0];
+
+          return {
+            variantId: variant?.id ?? "",
+            inventoryItemId: data.inventorySyncResult.inventoryItemId,
+            stockLocationId: data.systemDefaults.stockLocationId ?? "", 
+            stockedQuantity: data.input.productData?.stockCount ?? 0, 
+          };
+        },
+      );
+
+      linkVariantToInventoryStep(workflowWiringPayload);
+    });
+
+    return new WorkflowResponse(
+      transform({ inspection }, (data) => ({
+        success: true,
+        operation: data.inspection.productExists ? ("updated" as const) : ("created" as const)
+      }))
+    );
   }
 );
+
+export default sanitySyncProductWorkflow;

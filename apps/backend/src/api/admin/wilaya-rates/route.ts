@@ -1,5 +1,5 @@
 import type { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/framework/http"
-import upsertWilayaRateWorkflow from "../../../workflows/upsert-wilaya-rate"
+import upsertWilayaRateWorkflow from "../../../workflows/seed-wilayas/upsert-wilaya-rate"
 import { adminWilayaRateUpsertSchema } from "./validators"
 
 export async function POST(

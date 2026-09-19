@@ -26,9 +26,9 @@ export function mapSanityToMedusaProduct(
   salesChannelId?: string
 ): MedusaCoreProductInput {
   return {
-    title: product.title,
+    title: product.title.en,
     handle: product.slug,
-    description: product.description,
+    description: product.description.en,
     status: ProductStatus.PUBLISHED,
     weight: product.weightGrams || 0,
     shipping_profile_id: shippingProfileId,
