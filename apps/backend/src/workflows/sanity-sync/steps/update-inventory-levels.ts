@@ -1,5 +1,6 @@
 import { createStep, StepResponse } from "@medusajs/framework/workflows-sdk";
-import { Modules } from "@medusajs/framework/utils";
+import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils";
+import { IInventoryService, Logger } from "@medusajs/framework/types";
 
 interface UpdateInventoryLevelInput {
   inventoryItemId: string;
@@ -18,10 +19,14 @@ export const updateInventoryLevelsStep = createStep(
   async (
     input: UpdateInventoryLevelInput,
     { container },
-  ): Promise<StepResponse<{success: boolean}, InventoryLevelsResponse>> => {
-    const inventoryModuleService = container.resolve(Modules.INVENTORY);
+  ): Promise<StepResponse<{ success: boolean }, InventoryLevelsResponse>> => {
+    const inventoryModuleService = container.resolve(
+      Modules.INVENTORY,
+    ) as IInventoryService;
+    const logger = container.resolve(
+      ContainerRegistrationKeys.LOGGER,
+    ) as Logger;
 
-    // Fetch the current level matrix to preserve rollback integrity
     const [level] = await inventoryModuleService.listInventoryLevels({
       inventory_item_id: [input.inventoryItemId],
       location_id: [input.stockLocationId],
@@ -29,28 +34,46 @@ export const updateInventoryLevelsStep = createStep(
 
     const previousQty = level?.stocked_quantity ?? 0;
 
-    // Medusa v2 Inventory Module level updates use direct location_id mappings
-    await inventoryModuleService.updateInventoryLevels({
-      inventory_item_id: input.inventoryItemId,
-      location_id: input.stockLocationId,
-      stocked_quantity: input.stockedQuantity,
-    });
+    logger.info(
+      `[Sanity Sync] Adjusting inventory levels for Item [${input.inventoryItemId}] at Location [${input.stockLocationId}]. Delta: ${previousQty} -> ${input.stockedQuantity}`,
+    );
 
-    return new StepResponse({success: true}, {
-      itemId: input.inventoryItemId,
-      locationId: input.stockLocationId,
-      previousQty,
-    });
+    await inventoryModuleService.updateInventoryLevels([
+      {
+        inventory_item_id: input.inventoryItemId,
+        location_id: input.stockLocationId,
+        stocked_quantity: input.stockedQuantity,
+      },
+    ]);
+
+    return new StepResponse(
+      { success: true },
+      {
+        itemId: input.inventoryItemId,
+        locationId: input.stockLocationId,
+        previousQty,
+      },
+    );
   },
   async (compensateContext, { container }) => {
     if (!compensateContext) return;
-    const inventoryModuleService = container.resolve(Modules.INVENTORY);
+    const inventoryModuleService = container.resolve(
+      Modules.INVENTORY,
+    ) as IInventoryService;
+    const logger = container.resolve(
+      ContainerRegistrationKeys.LOGGER,
+    ) as Logger;
 
-    // Automatically revert the quantity value if subsequent workflow events crash
-    await inventoryModuleService.updateInventoryLevels({
-      inventory_item_id: compensateContext.itemId,
-      location_id: compensateContext.locationId,
-      stocked_quantity: compensateContext.previousQty,
-    });
+    logger.warn(
+      `[Workflow Rollback] Reverting stock layout to previous state: ${compensateContext.previousQty}`,
+    );
+
+    await inventoryModuleService.updateInventoryLevels([
+      {
+        inventory_item_id: compensateContext.itemId,
+        location_id: compensateContext.locationId,
+        stocked_quantity: compensateContext.previousQty,
+      },
+    ]);
   },
 );

@@ -3,6 +3,9 @@ import { structureTool } from "sanity/structure";
 import { visionTool } from "@sanity/vision";
 import { codeInput } from "@sanity/code-input";
 import uiTranslation from "./schemas/uiTranslation";
+import { localizedString, localizedText } from "./schemas/localizedObjects";
+import { category } from "./schemas/category";
+import { product } from "./schemas/product";
 const projectId = process.env.SANITY_STUDIO_PROJECT_ID || "4vzx52ot";
 const dataset = process.env.SANITY_STUDIO_DATASET || "production";
 export default defineConfig({
@@ -21,6 +24,10 @@ export default defineConfig({
   ],
 
   schema: {
-    types: [uiTranslation],
+    types: [uiTranslation,
+  localizedString,
+  localizedText,
+  category,
+  product],
   },
 });

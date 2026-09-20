@@ -11,46 +11,61 @@ Instead of processing heavy synchronization logic directly inside a blocking API
 * **Strict Type Safety:** Completely eliminates `any` types by enforcing exact payload contract structures between your CMS and backend modules.
 
 ---
+# Sanity CMS to Medusa v2 Sync Architecture Specification - Part 1
 
-## Step-by-Step Implementation Pipeline
-
-### 1. Lightweight Gatekeeping & Verification (`route.ts`)
-* **What we did:** Simplified the POST endpoint to act as a secure gateway. It validates incoming requests against a cryptographic token (`x-sanity-sync-token`).
-* **Why:** Keeps infrastructure secure and immediately dispatches verified payloads to the workflow engine, keeping edge-routing processes lightning fast.
-
-### 2. Isolated Infrastructure Resolution Step
-* **What we did:** Created a custom system default resolution step to query internal core channels (Sales Channels, Shipping Profiles, Warehouse Stock Locations).
-* **Why:** Avoids brittle, hardcoded system UUID variables. The sync engine automatically adapts when database targets change between staging and production environments.
-
-### 3. Just-In-Time (JIT) Category Synchronization
-* **What we did:** Designed an isolated step to cross-reference Sanity category slugs against the database. Missing channels are spun up natively via Medusa core category workflows before the product is processed.
-* **Why:** Ensures that complex hierarchy collections link up seamlessly without breaking foreign key restrictions or failing during dynamic creation passes.
-
-### 4. Dual-Branch DB State Inspection
-* **What we did:** Crafted a pre-execution verification step to pull inventory records and product models concurrently based on unique SKUs and handles.
-* **Why:** Gives the system precise operational visibility, allowing the workflow orchestrator to dynamically toggle between updating data or spawning fresh models.
-
-### 5. Compensable Data Modification & Level Updates
-* **What we did:** When a product match is discovered, its metadata updates concurrently with its inventory matrix numbers using custom actions.
-* **Why:** Uses safe, programmatic rollbacks. If the stock synchronization locks up, the database reverts the physical quantities to their previous exact figures automatically.
-
-### 6. Composable Cross-Module Provisioning & Link Allocation
-* **What we did:** For pristine catalog data, the branch handles sequential creation of the core product model, provisions an explicit `Inventory Item`, locks down a multi-tenant association mapping using Medusa's **Remote Link** utility, and spins up initial quantities.
-* **Why:** Medusa v2 decouples catalogs and physical inventory warehouse limits. Using the Remote Link manager ensures storefront checkout engines accurately gauge available product stock.
-
-# Sanity CMS to Medusa v2 Catalog Synchronization Engine
-
-This document outlines the architecture, data-mapping strategy, and step-by-step pipeline engineered to synchronize products and categories from Sanity CMS to Medusa v2.
+This document specifies the technical architecture, dynamic data normalization patterns, type definitions, and structural file configurations for the real-time catalog synchronization system bridging **Sanity Studio CMS** (`apps/cms`) and **Medusa v2** (`apps/backend`).
 
 ---
 
-## Architectural Overview
-Instead of processing heavy synchronization logic directly inside a blocking API Route, the synchronization pipeline offloads tasks to a custom **Medusa v2 Workflow**. This provides:
-* **Transactional Integrity:** Automatic atomic rollbacks across module databases if subsequent steps fail.
-* **Non-Blocking Execution:** Frees up API threads to handle incoming storefront traffic while heavy data transfers run cleanly.
-* **Strict Type Safety:** Completely eliminates `any` types by enforcing exact payload contract structures between your CMS and backend modules.
+## 1. System Topology & Multi-Regional Matrix
+
+The architecture facilitates a seamless content-to-commerce pipeline supporting multi-lingual storefront strings via `next-intl` (English, French, and Arabic) and cross-module automated multi-currency catalog mapping targeting distinct payment gateways across three global regions:
+
+| Targeted Region | Transaction Currency | Configured Gateway Router | Framework Field Target |
+| :--- | :--- | :--- | :--- |
+| **Algeria (Local)** | DZD (DA) | **Chargily Gateway** | `pricing.dzd` → `Math.round(val * 100)` |
+| **Europe** | EUR (€) | **Stripe API** | `pricing.eur` → `Math.round(val * 100)` |
+| **North America** | USD (\$) | **Stripe API** | `pricing.usd` → `Math.round(val * 100)` |
 
 ---
+
+## 2. Inbound Serialization Layer
+
+###  Sanity Studio Content Schemas (`apps/cms`)
+The CMS schema structures localized entities alongside deep, nested objects containing pricing details, asset gallery matrices, and logistical tracking metadata:
+
+```typescript
+// Field mappings extracted from Sanity schema
+defineField({ name: "title", type: "localizedString" }), // en, fr, ar
+defineField({ name: "slug", type: "slug", options: { source: "title.en" } }),
+defineField({
+  name: "images",
+  type: "array",
+  of: [{ type: "image", options: { hotspot: true }, fields: [{ name: "alt", type: "string" }] }]
+}),
+defineField({
+  name: "pricing",
+  type: "object",
+  fields: [
+    { name: "dzd", type: "number" },
+    { name: "eur", type: "number" },
+    { name: "usd", type: "number" }
+  ]
+});
+```
+
+### Webhook Route Controller (`apps/backend/src/api/store/sanity-sync/route.ts`)
+The endpoint listens on the Storefront API zone (`POST /store/sanity-sync`). It verifies access credentials via a custom `x-sanity-sync-token` header, normalizes polymorphic data input configurations, translates raw asset hex reference blocks into public Sanity CDN paths, and schedules execution down the core directed acyclic graph (DAG) workflow tree.
+
+- **Sanity CDN URL Expansion Pattern:**
+  `https://sanity.io{projectId}/{dataset}/{id}-{dimensions}.{extension}`
+
+---
+
+## 3. Workflow Orchestration DAG Tree (`src/workflows/sanity-sync`)
+
+The execution path runs on top of the `@medusajs/framework/workflows-sdk` engine. It handles complex conditional branches idempotently, implementing strict compensation handlers to ensure structural database consistency across cross-module failure cascades.
+
 
 ## File Structure & Component Purposes
 
@@ -124,3 +139,98 @@ src/
 6. **Branch Run:**
    * **Branch A (Exists):** Updates product copy and safely recalibrates quantities via `updateInventoryLevelsStep`.
    * **Branch B (New):** Generates product variants, spins up an inventory item, maps them using `linkVariantToInventoryStep`, and initializes stock counts.
+
+
+# Sanity CMS to Medusa v2 Sync Architecture Specification 
+
+-# Sanity CMS to Medusa v2 Catalog Synchronization Engine - Part 2
+
+---
+
+## 4. Core Step Specifications & Idempotency Rules
+
+### 1. `getSystemDefaultsStep`
+Queries the Medusa database concurrently using the Query Graph engine to pull active system infrastructures: the default Sales Channel, Shipping Profile, and warehouse Stock Location. It acts as a defensive guard to prevent foreign key compilation crashes down the line.
+
+### 2. `inspectExistingProductStep`
+A pre-execution step that queries both the Product and Inventory Module databases simultaneously using the unique Sanity slug and SKU. It tells the master workflow exactly whether to route data down the "Update" track or the "Create" track.
+
+### 3. `syncProductCategoriesStep`
+Checks Medusa for incoming category slugs. If a category exists, it grabs the ID; if it's missing, it triggers Medusa's internal generation workflow to create it on the fly. It implements Just-In-Time (JIT) data generation and uses a unique `.config({ name: "..." })` identity tracker to run both single-item and batch updates safely.
+
+### 4. `updateInventoryLevelsStep`
+Programmatically changes product stock count allocations within the Inventory Module layer when handling existing item updates. It features atomic rollback safeguards; if a subsequent process in the sync chain crashes, it fires a compensation block to restore your stock count back to its original value.
+
+### 5. `linkVariantToInventoryStep`
+Establishes the link between variants and inventory ledger rows using Medusa's central link engine.
+- **Idempotency Safeguard:** Checks if a level row index exists before writing to the database using `listInventoryLevels`. If a record is found, it updates the quantity inline via `updateInventoryLevels` instead of trying to write a duplicate row and throwing a unique constraint conflict error.
+
+### 6. `batchSyncStep`
+A high-throughput lane designed to handle heavy ingestion requests. It processes large chunks of items in controlled concurrent blocks to prevent transaction timeouts or API throttling.
+
+### 7. `deleteCatalogItemStep`
+A polymorphic cleanup step that handles both product and category deletions.
+- **Defensive Guardrail:** Inspects relationship constraints before deleting a category. If active products are still mapped to it, the step aborts the operation to prevent catalog fragmentation.
+
+---
+
+## 5. End-to-End (E2E) Terminal Test Suite
+
+Execute these test payloads sequentially inside a **PowerShell terminal window** to verify your setup. Ensure your local server (`pnpm dev` on port `9000`) and a public secure tunnel (`lt --port 9000`) are actively running.
+
+### Test 1: JIT Category & Multi-Image Product Creation
+```powershell
+$headers = @{ "x-sanity-sync-token" = "your_secure_local_development_secret_token"; "Content-Type" = "application/json" }
+$body = @{
+    operation = "create"; documentType = "product"
+    productData = @{
+        _id = "test-prod-premium-200"
+        title = @{ en = "Premium Aluminum Workspace Stand"; fr = "Support de Bureau en Aluminium"; ar = "حامل مكتب ألمنيوم فاخر" }
+        description = @{ en = "Ergonomic workspace stand tuned for pro developers." }
+        slug = @{ current = "premium-aluminum-workspace-stand" }
+        pricing = @{ dzd = 18500; eur = 120; usd = 135 }
+        stockCount = 15; weightGrams = 2400; lengthMm = 450; widthMm = 220; heightMm = 120; originCountry = "DZ"
+        categories = @( @{ _type = "reference"; _ref = "cat-workspace-accessories" } )
+        images = @( @{ _type = "image"; asset = @{ _type = "reference"; _ref = "image-standfront-1920x1080-png" }; alt = "Clean studio aesthetic workspace stand" } )
+        manage_inventory = $true; allow_backorder = $false
+    }
+} | ConvertTo-Json -Depth 10 -Compress
+Invoke-RestMethod -Uri "http://localhost:9000/store/sanity-sync" -Method Post -Headers $headers -Body $body
+```
+*Expected Output:* `{"success":true,"message":"Sync execution complete"}`
+
+### Test 2: Idempotent Single-Item Quantities Update (Upsert)
+```powershell
+$headers = @{ "x-sanity-sync-token" = "your_secure_local_development_secret_token"; "Content-Type" = "application/json" }
+$body = @{
+    operation = "create"; documentType = "product"
+    productData = @{
+        _id = "test-prod-premium-200"
+        title = @{ en = "Premium Aluminum Workspace Stand (v2 Upgraded edition)" }
+        slug = @{ current = "premium-aluminum-workspace-stand" }
+        pricing = @{ dzd = 19500; eur = 125; usd = 140 }
+        stockCount = 75 # Incremented from 15 to 75
+        categories = @( @{ _type = "reference"; _ref = "cat-workspace-accessories" } )
+        images = @( @{ _type = "image"; asset = @{ _type = "reference"; _ref = "image-standfront-1920x1080-png" } } )
+        manage_inventory = $true; allow_backorder = $false
+    }
+} | ConvertTo-Json -Depth 10 -Compress
+Invoke-RestMethod -Uri "http://localhost:9000/store/sanity-sync" -Method Post -Headers $headers -Body $body
+```
+*Expected Output Logs:* `[Sanity Sync] Inventory level already exists... Syncing quantities instead.`
+
+### Test 3: Relationship Constraint Guard (Expected Error Branch)
+```powershell
+$headers = @{ "x-sanity-sync-token" = "your_secure_local_development_secret_token"; "Content-Type" = "application/json" }
+$body = @{ operation = "delete"; documentType = "category"; productData = @{ slug = "cat-workspace-accessories" } } | ConvertTo-Json -Depth 5 -Compress
+Invoke-RestMethod -Uri "http://localhost:9000/store/sanity-sync" -Method Post -Headers $headers -Body $body
+```
+*Expected Output:* `500 Server Error` with message: `Aborting category deletion: Category [cat-workspace-accessories] has products associated with it.`
+
+### Test 4: Full Cascade Deletion and Inventory Link Cleanup
+```powershell
+$headers = @{ "x-sanity-sync-token" = "your_secure_local_development_secret_token"; "Content-Type" = "application/json" }
+$body = @{ operation = "delete"; documentType = "product"; productData = @{ slug = "premium-aluminum-workspace-stand" } } | ConvertTo-Json -Depth 5 -Compress
+Invoke-RestMethod -Uri "http://localhost:9000/store/sanity-sync" -Method Post -Headers $headers -Body $body
+```
+*Expected Output:* `{"success":true,"operation":"deleted",...}`

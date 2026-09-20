@@ -1,5 +1,6 @@
-// apps/backend/src/workflows/sanity-sync/steps/create-fresh-inventory.ts
 import { createStep, StepResponse } from "@medusajs/framework/workflows-sdk";
+import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils";
+import { IInventoryService, Logger } from "@medusajs/framework/types";
 import { 
   createInventoryItemsWorkflow, 
   createInventoryLevelsWorkflow 
@@ -14,18 +15,26 @@ interface CreateFreshInventoryInput {
   quantity: number;
 }
 
+interface CreateFreshInventoryOutput {
+  inventoryItemId: string;
+  wasCreated: boolean;
+}
+
 export const createFreshInventoryStep = createStep(
   "create-fresh-inventory",
   async (input: CreateFreshInventoryInput, { container }) => {
-    // If the inventory item was found during our pre-execution check, exit early and return its ID
+    const logger = container.resolve(ContainerRegistrationKeys.LOGGER) as Logger;
+
     if (input.inventoryItemExists) {
-      return new StepResponse({
+      logger.info(`[Sanity Sync] Reusing pre-existing inventory entry for SKU: [${input.sku}]`);
+      return new StepResponse<CreateFreshInventoryOutput>({
         inventoryItemId: input.preexistingInventoryItemId,
         wasCreated: false
       });
     }
 
-    // Invoke core workflows manually via the container inside the custom step block
+    logger.info(`[Sanity Sync] Spawning new inventory entry for SKU: [${input.sku}]`);
+
     const { result: createdItems } = await createInventoryItemsWorkflow(container).run({
       input: {
         items: [
@@ -39,8 +48,6 @@ export const createFreshInventoryStep = createStep(
     });
 
     const inventoryItemId = createdItems[0].id;
-
-    // Allocate initial inventory levels safely for the fresh asset
     await createInventoryLevelsWorkflow(container).run({
       input: {
         inventory_levels: [
@@ -53,9 +60,19 @@ export const createFreshInventoryStep = createStep(
       }
     });
 
-    return new StepResponse({
-      inventoryItemId,
-      wasCreated: true
-    });
+    return new StepResponse<CreateFreshInventoryOutput>(
+      { inventoryItemId, wasCreated: true },
+      { inventoryItemId, wasCreated: true } 
+    );
+  },
+  
+  async (compensateData, { container }) => {
+    if (!compensateData || !compensateData.wasCreated) return;
+
+    const inventoryModuleService = container.resolve(Modules.INVENTORY) as IInventoryService;
+    const logger = container.resolve(ContainerRegistrationKeys.LOGGER) as Logger;
+
+    logger.warn(`[Workflow Rollback] Purging newly created inventory item ID: [${compensateData.inventoryItemId}] due to downstream failure.`);
+    await inventoryModuleService.deleteInventoryItems([compensateData.inventoryItemId]);
   }
 );

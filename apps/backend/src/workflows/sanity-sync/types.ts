@@ -1,13 +1,20 @@
+import { HttpTypes } from "@medusajs/framework/types";
+
 export interface SanityLocalizedString {
   en: string;
   fr?: string;
   ar?: string;
 }
 
-export interface SanityCategoryPayload {
+export interface SanityCategoryPayload extends Partial<HttpTypes.AdminProductCategory> {
   _id: string;
   title: string;
   slug: string;
+}
+
+export interface SanityImagePayload extends Partial<HttpTypes.AdminProductImage> {
+  url: string;
+  altText?: string;
 }
 
 export interface SanityProductPayload {
@@ -18,16 +25,36 @@ export interface SanityProductPayload {
   basePriceDzd: number; 
   basePriceEur: number;
   basePriceUsd: number;
+  thumbnail?: string; 
+  images?: SanityImagePayload[];
   weightGrams?: number;
+  lengthMm?: number;
+  widthMm?: number;
+  heightMm?: number;
+  originCountry?: string;
   stockCount: number; 
   categories: SanityCategoryPayload[];
+  manage_inventory?: boolean;
+  allow_backorder?: boolean;
+}
+
+export interface SanityRawProductInput extends Omit<Partial<SanityProductPayload>, "images" | "categories" | "slug"> {
+  _id: string;
+  slug?: { current: string } | string;
+  pricing?: {
+    dzd?: number;
+    eur?: number;
+    usd?: number;
+  };
+  images?: { _type: "image"; asset: { _ref: string; _type: "reference" }; alt?: string }[];
+  categories?: { _type: "reference"; _ref: string }[] | string[];
 }
 
 export interface SanitySyncWorkflowInput {
-  operation: "create" | "update" | "delete";
+  operation: "create" | "update" | "delete" | "batch";
   documentType: "category" | "product";
-  categoryData?: SanityCategoryPayload;
   productData?: SanityProductPayload;
+  batchProducts?: SanityProductPayload[];
 }
 
 export interface SystemDefaultsDTO {
@@ -45,21 +72,27 @@ export interface ProductInspectionDTO {
 
 export interface SyncWorkflowResult {
   success: boolean;
-  operation: "created" | "updated" | "skipped";
+  operation: "created" | "updated" | "deleted" | "batched" | "skipped";
+  details?: any;
 }
 
-// Structural type assertions to guarantee type safety without 'any' leakage
-export interface WorkflowVariantDTO  {
+export interface WorkflowPriceDTO extends Partial<HttpTypes.AdminPrice> {
+  currency_code: string;
+  amount: number;
+}
+
+export interface WorkflowVariantDTO extends Omit<Partial<HttpTypes.AdminProductVariant>, "prices"> {
   id: string;
   sku: string;
+  prices?: WorkflowPriceDTO[];
 }
 
-export interface WorkflowProductDTO {
+export interface WorkflowProductDTO extends Omit<Partial<HttpTypes.AdminProduct>, "variants"> {
   id: string;
   variants?: WorkflowVariantDTO[];
 }
 
-export interface WorkflowInventoryItemDTO {
+export interface WorkflowInventoryItemDTO extends Partial<HttpTypes.AdminInventoryItem> {
   id: string;
   sku: string;
 }

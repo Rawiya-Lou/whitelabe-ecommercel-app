@@ -1,5 +1,6 @@
 import { createStep, StepResponse } from "@medusajs/framework/workflows-sdk";
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils";
+import { IInventoryService, Logger } from "@medusajs/framework/types";
 import { ProductInspectionDTO } from "../types";
 
 interface InspectInput {
@@ -13,28 +14,31 @@ export const inspectExistingProductStep = createStep(
     input: InspectInput,
     { container },
   ): Promise<StepResponse<ProductInspectionDTO>> => {
-    const logger = container.resolve(ContainerRegistrationKeys.LOGGER);
-
+    const logger = container.resolve(ContainerRegistrationKeys.LOGGER) as Logger;
     const query = container.resolve(ContainerRegistrationKeys.QUERY);
-    const inventoryModuleService = container.resolve(Modules.INVENTORY);
+    const inventoryModuleService = container.resolve(Modules.INVENTORY) as IInventoryService;
 
-    // Concurrently verify both product handles and inventory item variants
+    const normalizedSlug = input.productSlug.toLowerCase().trim();
+    const normalizedSku = input.variantSku.trim();
     const { data: products } = await query.graph({
       entity: "product",
       fields: ["id", "handle", "variants.id", "variants.sku"],
-      filters: { handle: [input.productSlug.toLowerCase().trim()] },
+      filters: { handle: [normalizedSlug] },
     });
 
     const product = products?.[0];
-    const [inventoryItem] = await inventoryModuleService.listInventoryItems({
-      sku: input.variantSku.trim(),
-    });
+    
+    const [inventoryItem] = normalizedSku 
+      ? await inventoryModuleService.listInventoryItems({ sku: [normalizedSku] })
+      : [];
 
     const variantId = product?.variants?.[0]?.id;
-    logger.info(`Inspection Matrix: Product Exists = ${!!product} | Inventory Item Exists = ${!!inventoryItem}`);
+    
+    logger.info(
+      `[Sanity Sync] Inspection Matrix for [${normalizedSlug}]: Product Exists = ${!!product} | Inventory Item Exists = ${!!inventoryItem}`
+    );
 
-
-    return new StepResponse({
+    return new StepResponse<ProductInspectionDTO>({
       productExists: !!product,
       productId: product?.id,
       inventoryItemId: inventoryItem?.id,
