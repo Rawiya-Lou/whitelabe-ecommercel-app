@@ -57,7 +57,6 @@ export function mapSanityToMedusaProduct(
     variants: [
       {
         title: "Standard Edition",
-        sku: `SANITY-${product._id.toUpperCase().trim()}`,
         options: { "Variant Option": "Standard" },
         prices: prices,
          manage_inventory: product.manage_inventory ?? true,

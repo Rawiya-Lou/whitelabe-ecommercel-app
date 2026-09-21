@@ -1,3 +1,4 @@
+// apps/backend/src/workflows/sanity-sync/steps/inspect-existing-product.ts
 import { createStep, StepResponse } from "@medusajs/framework/workflows-sdk";
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils";
 import { IInventoryService, Logger } from "@medusajs/framework/types";
@@ -20,27 +21,57 @@ export const inspectExistingProductStep = createStep(
 
     const normalizedSlug = input.productSlug.toLowerCase().trim();
     const normalizedSku = input.variantSku.trim();
-    const { data: products } = await query.graph({
+
+    let productId: string | undefined;
+    let variantId: string | undefined;
+    let productExists = false;
+
+    // 1. Core Lookup Pass: Query Graph engine by handle slug
+    const { data: productsBySlug } = await query.graph({
       entity: "product",
       fields: ["id", "handle", "variants.id", "variants.sku"],
       filters: { handle: [normalizedSlug] },
     });
 
-    const product = products?.[0];
-    
+    if (productsBySlug && productsBySlug.length > 0) {
+      const product = productsBySlug[0];
+      productExists = true;
+      productId = product.id;
+      variantId = product.variants?.[0]?.id;
+    }
+
+    // 2. Orphan Protection Pass: If not found by slug, search directly by Variant SKU
+    if (!productExists && normalizedSku) {
+      const { data: variantsBySku } = await query.graph({
+        entity: "product_variant",
+        fields: ["id", "sku", "product.id"],
+        filters: { sku: [normalizedSku] },
+      });
+
+      if (variantsBySku && variantsBySku.length > 0) {
+        const foundVariant = variantsBySku[0];
+        variantId = foundVariant.id;
+        productId = foundVariant.product?.id;
+        productExists = !!productId; // Becomes an update if a parent product is linked
+        
+        logger.info(
+          `[Sanity Sync Guard] Orphaned variant detected for SKU [${normalizedSku}]. Safely healing database reference routing map.`
+        );
+      }
+    }
+
+    // 3. Resolve Inventory ledger tracking item independently
     const [inventoryItem] = normalizedSku 
       ? await inventoryModuleService.listInventoryItems({ sku: [normalizedSku] })
       : [];
 
-    const variantId = product?.variants?.[0]?.id;
-    
     logger.info(
-      `[Sanity Sync] Inspection Matrix for [${normalizedSlug}]: Product Exists = ${!!product} | Inventory Item Exists = ${!!inventoryItem}`
+      `[Sanity Sync] Inspection Matrix for [${normalizedSlug}]: Product Exists = ${productExists} | Inventory Item Exists = ${!!inventoryItem}`
     );
 
     return new StepResponse<ProductInspectionDTO>({
-      productExists: !!product,
-      productId: product?.id,
+      productExists,
+      productId,
       inventoryItemId: inventoryItem?.id,
       variantId,
     });

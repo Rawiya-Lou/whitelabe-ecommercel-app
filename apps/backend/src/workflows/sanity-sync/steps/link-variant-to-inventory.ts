@@ -1,12 +1,15 @@
+// apps/backend/src/workflows/sanity-sync/steps/link-variant-to-inventory.ts
 import { createStep, StepResponse } from "@medusajs/framework/workflows-sdk";
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils";
-import { IInventoryService, Logger } from "@medusajs/framework/types";
+import { IInventoryService, IProductModuleService, Logger } from "@medusajs/framework/types";
 
 interface LinkVariantInventoryInput {
   variantId: string;
   inventoryItemId: string;
   stockLocationId?: string;
   stockedQuantity?: number;
+  shouldLink?: boolean;
+  sku: string; 
 }
 
 interface LinkVariantInventoryCompensation {
@@ -25,6 +28,10 @@ export const linkVariantToInventoryStep = createStep(
     StepResponse<{ success: boolean }, LinkVariantInventoryCompensation>
   > => {
     const remoteLink = container.resolve(ContainerRegistrationKeys.LINK);
+    const query = container.resolve(ContainerRegistrationKeys.QUERY);
+    const productModuleService = container.resolve(
+      Modules.PRODUCT
+    ) as IProductModuleService;
     const inventoryModuleService = container.resolve(
       Modules.INVENTORY,
     ) as IInventoryService;
@@ -32,16 +39,53 @@ export const linkVariantToInventoryStep = createStep(
       ContainerRegistrationKeys.LOGGER,
     ) as Logger;
 
-    logger.info(
-      `[Sanity Sync] Binding Variant [${input.variantId}] to Inventory Item [${input.inventoryItemId}]`,
+    let targetVariantId = input.variantId;
+
+    // 1. Recovery Pass: If variantId is blank (from a fresh creation flow), look it up dynamically via current handle slug
+    if (!targetVariantId && input.sku) {
+      const productHandle = input.sku.replace("SANITY-", "").toLowerCase();
+      const { data: variants } = await query.graph({
+        entity: "product_variant",
+        fields: ["id", "sku"],
+        filters: { product: { handle: [productHandle] } }
+      });
+
+      if (variants && variants.length > 0) {
+        targetVariantId = variants[0].id;
+      }
+    }
+
+    if (!targetVariantId) {
+      throw new Error(`[Sanity Sync] Linkage aborted: Unable to resolve a matching variant resource row target.`);
+    }
+
+    // 2. Inject the SKU Directly: Split explicitly across two positional arguments as required by Medusa v2 [INDEX]
+    logger.info(`[Sanity Sync] Attaching SKU [${input.sku}] onto variant ID: [${targetVariantId}]`);
+    await productModuleService.updateProductVariants(
+      targetVariantId, 
+      {
+        sku: input.sku
+      }
     );
 
-    await remoteLink.create([
-      {
-        [Modules.PRODUCT]: { variant_id: input.variantId },
-        [Modules.INVENTORY]: { inventory_item_id: input.inventoryItemId },
-      },
-    ]);
+    // 3. Remote Link Binding Pass: Verify if connection maps already exist
+    const { data: activeLinks } = await query.graph({
+      entity: "product_variant_inventory_item",
+      fields: ["variant_id", "inventory_item_id"],
+      filters: { variant_id: [targetVariantId], inventory_item_id: [input.inventoryItemId] }
+    });
+
+    if (!activeLinks || activeLinks.length === 0) {
+      logger.info(
+        `[Sanity Sync] Binding Variant [${targetVariantId}] to Inventory Item [${input.inventoryItemId}]`,
+      );
+      await remoteLink.create([
+        {
+          [Modules.PRODUCT]: { variant_id: targetVariantId },
+          [Modules.INVENTORY]: { inventory_item_id: input.inventoryItemId },
+        },
+      ]);
+    }
 
     let levelCreatedByThisStep = false;
 
@@ -76,10 +120,10 @@ export const linkVariantToInventoryStep = createStep(
     return new StepResponse(
       { success: true },
       {
-        variantId: input.variantId,
+        variantId: targetVariantId,
         inventoryItemId: input.inventoryItemId,
         stockLocationId: input.stockLocationId,
-        levelCreatedByThisStep, // 💡 FIXED: Injected tracking value to satisfy structural type requirement
+        levelCreatedByThisStep,
       },
     );
   },
@@ -93,16 +137,14 @@ export const linkVariantToInventoryStep = createStep(
     ) as IInventoryService;
     const logger = container.resolve(
       ContainerRegistrationKeys.LOGGER,
-    ) as Logger; // 💡 FIXED: Cleaned up duplicate duplicate code line declarations
+    ) as Logger;
 
     logger.warn(
       `[Workflow Rollback] Downstream fault detected. Reversing inventory relationship bindings.`,
     );
 
-    // Only purge the level matrix index if it was built during this single execution block
     if (compensateInput.stockLocationId && compensateInput.levelCreatedByThisStep) {
       try {
-        // 💡 FIXED: Symmetrical positional argument placement matrix matching framework layout specs
         await inventoryModuleService.deleteInventoryLevel(
           compensateInput.inventoryItemId,
           compensateInput.stockLocationId,

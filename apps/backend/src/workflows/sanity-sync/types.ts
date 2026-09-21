@@ -73,8 +73,40 @@ export interface ProductInspectionDTO {
 export interface SyncWorkflowResult {
   success: boolean;
   operation: "created" | "updated" | "deleted" | "batched" | "skipped";
-  details?: any;
+  details?: unknown;
 }
+
+export interface LinkVariantInventoryCompensation {
+  variantId: string;
+  inventoryItemId: string;
+  stockLocationId: string;
+  levelCreatedByThisStep: boolean;
+}
+
+export interface CreateFreshInventoryInput {
+  inventoryItemExists: boolean;
+  preexistingInventoryItemId: string;
+  sku: string;
+  title: string;
+  stockLocationId: string;
+  quantity: number;
+  originCountry?: string;
+}
+
+export interface CreateFreshInventoryOutput {
+  inventoryItemId: string;
+  wasCreated: boolean;
+}
+
+
+export interface LinkVariantInventoryInput {
+  variantId: string;
+  inventoryItemId: string;
+  stockLocationId: string;
+  stockedQuantity: number;
+  shouldLink: boolean;
+}
+
 
 export interface WorkflowPriceDTO extends Partial<HttpTypes.AdminPrice> {
   currency_code: string;
