@@ -91,6 +91,7 @@ export const sanitySyncProductWorkflow = createWorkflow(
       );
     });
 
+
     const rawCategories = transform(
       { input },
       (data) => data.input.productData?.categories ?? [],
@@ -114,7 +115,10 @@ export const sanitySyncProductWorkflow = createWorkflow(
 
     const inspection = inspectExistingProductStep(lookupParams);
 
-    when("product-exists-update-branch",inspection, (res) => res.productExists).then(() => {
+    const isUpdate = transform({ inspection }, (data) => data.inspection.productExists);
+
+
+    when("product-exists-update-branch", isUpdate, (condition) => condition).then(() => {
       const updatePayload = transform(
         { input, inspection, verifiedCategoryIds },
         (data) => ({
@@ -149,6 +153,7 @@ export const sanitySyncProductWorkflow = createWorkflow(
     when("update-existing-inventory-levels-branch",inventoryUpdateParams, (inv) => inv.shouldExecute).then(() => {
       updateInventoryLevelsStep(inventoryUpdateParams);
     });
+    
 
     when("product-absent-creation-branch",inspection, (res) => !res.productExists).then(() => {
       const createPayload = transform(
@@ -196,23 +201,21 @@ export const sanitySyncProductWorkflow = createWorkflow(
 
       const workflowWiringPayload = transform(
         {
-          createdProductsResult,
+          inspection,
           inventorySyncResult,
           systemDefaults,
           input,
         },
-        (data) => {
-          const productsList = (data.createdProductsResult ||
-            []) as unknown as WorkflowProductDTO[];
-          const variant = productsList?.[0]?.variants?.[0];
-
-          return {
-            variantId: variant?.id ?? "",
+        (data) => ({
+          shouldLink: !data.inspection.productExists,
+        
+       
+            variantId: data?.inspection.variantId ?? "",
             inventoryItemId: data.inventorySyncResult.inventoryItemId,
             stockLocationId: data.systemDefaults.stockLocationId ?? "",
             stockedQuantity: data.input.productData?.stockCount ?? 0,
-          };
-        },
+          
+        }),
       );
 
       linkVariantToInventoryStep(workflowWiringPayload);

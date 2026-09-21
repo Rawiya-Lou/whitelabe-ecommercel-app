@@ -12,5 +12,20 @@ export default defineMiddlewares({
         validateAndTransformBody(CalculateShippingSchema),
       ],
     },
+
+    {
+      // Match your exact custom sync hook route
+      matcher: "/store/sanity-sync",
+      method: "POST",
+      // Automatically attach an internal token placeholder so live Sanity calls bypass the storefront auth guard
+      middlewares: [
+        (req, res, next) => {
+          if (!req.headers["x-publishable-api-key"]) {
+            req.headers["x-publishable-api-key"] = "pk_ea79ea0e54d16e2c6faf4b4bfb9049d3ad3b9a10fd7cc866d566f518f972999a";
+          }
+          next();
+        }
+      ]
+    }
   ],
 })

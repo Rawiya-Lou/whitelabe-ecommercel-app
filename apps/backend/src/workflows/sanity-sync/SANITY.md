@@ -201,7 +201,11 @@ Invoke-RestMethod -Uri "http://localhost:9000/store/sanity-sync" -Method Post -H
 
 ### Test 2: Idempotent Single-Item Quantities Update (Upsert)
 ```powershell
-$headers = @{ "x-sanity-sync-token" = "your_secure_local_development_secret_token"; "Content-Type" = "application/json" }
+$env:PUBLISH_TOKEN="pk_ea79ea0e54d16e2c6faf4b4bfb9049d3ad3b9a10fd7cc866d566f518f972999a"
+ $env:SYNC_TOKEN ="f61ffa71566c385081604999bf8473125ac928221223670f0d57dd5230abf2cb"
+$headers = @{ 
+"x-sanity-sync-token" = $($env:SYNC_TOKEN);
+"x-publishable-api-key" = $($env:PUBLISH_TOKEN); "Content-Type" = "application/json"}
 $body = @{
     operation = "create"; documentType = "product"
     productData = @{

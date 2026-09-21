@@ -24,7 +24,8 @@
     "test:integration:modules": "cross-env TEST_TYPE=integration:modules vitest run --poolOptions.threads.singleThread --no-file-parallelism --config ./vitest.config.mts",
     "test:unit": "cross-env TEST_TYPE=unit vitest run --silent --config ./vitest.config.mts",
     "test": "vitest run --config ./vitest.config.mts",
-    "test:watch": "vitest --config ./vitest.config.mts"
+    "test:watch": "vitest --config ./vitest.config.mts",
+    "sync:test": "ts-node scripts/trigger-sanity-sync.ts"
   },
   "dependencies": {
     "@chargily/chargily-pay": "^2.1.0",
