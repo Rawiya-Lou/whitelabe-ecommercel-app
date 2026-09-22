@@ -1,4 +1,3 @@
-// apps/backend/src/workflows/sanity-sync/steps/inspect-existing-product.ts
 import { createStep, StepResponse } from "@medusajs/framework/workflows-sdk";
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils";
 import { IInventoryService, Logger } from "@medusajs/framework/types";
@@ -15,9 +14,13 @@ export const inspectExistingProductStep = createStep(
     input: InspectInput,
     { container },
   ): Promise<StepResponse<ProductInspectionDTO>> => {
-    const logger = container.resolve(ContainerRegistrationKeys.LOGGER) as Logger;
+    const logger = container.resolve(
+      ContainerRegistrationKeys.LOGGER,
+    ) as Logger;
     const query = container.resolve(ContainerRegistrationKeys.QUERY);
-    const inventoryModuleService = container.resolve(Modules.INVENTORY) as IInventoryService;
+    const inventoryModuleService = container.resolve(
+      Modules.INVENTORY,
+    ) as IInventoryService;
 
     const normalizedSlug = input.productSlug.toLowerCase().trim();
     const normalizedSku = input.variantSku.trim();
@@ -26,7 +29,7 @@ export const inspectExistingProductStep = createStep(
     let variantId: string | undefined;
     let productExists = false;
 
-    // 1. Core Lookup Pass: Query Graph engine by handle slug
+    // Core Lookup Pass: Query Graph engine by handle slug
     const { data: productsBySlug } = await query.graph({
       entity: "product",
       fields: ["id", "handle", "variants.id", "variants.sku"],
@@ -40,7 +43,7 @@ export const inspectExistingProductStep = createStep(
       variantId = product.variants?.[0]?.id;
     }
 
-    // 2. Orphan Protection Pass: If not found by slug, search directly by Variant SKU
+    // Orphan Protection Pass: If not found by slug, search directly by Variant SKU
     if (!productExists && normalizedSku) {
       const { data: variantsBySku } = await query.graph({
         entity: "product_variant",
@@ -53,20 +56,22 @@ export const inspectExistingProductStep = createStep(
         variantId = foundVariant.id;
         productId = foundVariant.product?.id;
         productExists = !!productId; // Becomes an update if a parent product is linked
-        
+
         logger.info(
-          `[Sanity Sync Guard] Orphaned variant detected for SKU [${normalizedSku}]. Safely healing database reference routing map.`
+          `[Sanity Sync Guard] Orphaned variant detected for SKU [${normalizedSku}]. Safely healing database reference routing map.`,
         );
       }
     }
 
-    // 3. Resolve Inventory ledger tracking item independently
-    const [inventoryItem] = normalizedSku 
-      ? await inventoryModuleService.listInventoryItems({ sku: [normalizedSku] })
+    // Resolve Inventory ledger tracking item independently
+    const [inventoryItem] = normalizedSku
+      ? await inventoryModuleService.listInventoryItems({
+          sku: [normalizedSku],
+        })
       : [];
 
     logger.info(
-      `[Sanity Sync] Inspection Matrix for [${normalizedSlug}]: Product Exists = ${productExists} | Inventory Item Exists = ${!!inventoryItem}`
+      `[Sanity Sync] Inspection Matrix for [${normalizedSlug}]: Product Exists = ${productExists} | Inventory Item Exists = ${!!inventoryItem}`,
     );
 
     return new StepResponse<ProductInspectionDTO>({

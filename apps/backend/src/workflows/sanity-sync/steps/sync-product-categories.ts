@@ -36,7 +36,7 @@ export const syncProductCategoriesStep = createStep(
       const normalizedTitle = cat.title || cat.slug || "Category Reference";
 
       logger.info(
-        `[Sanity Sync] 🔍 Validating database index for category handle: [${normalizedHandle}]`,
+        `[Sanity Sync] Validating database index for category handle: [${normalizedHandle}]`,
       );
 
       const { data: existing } = await query.graph({
@@ -49,7 +49,7 @@ export const syncProductCategoriesStep = createStep(
         const matchingCategory = existing[0];
         categoryIds.push(matchingCategory.id);
         logger.info(
-          `[Sanity Sync] ℹ️ Found matching database category ID: [${matchingCategory.id}]`,
+          `[Sanity Sync] Found matching database category ID: [${matchingCategory.id}]`,
         );
       } else {
         logger.info(

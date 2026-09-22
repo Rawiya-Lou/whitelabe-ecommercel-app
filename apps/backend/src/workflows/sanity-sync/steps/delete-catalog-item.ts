@@ -42,7 +42,6 @@ export const deleteCatalogItemStep = createStep(
         `[Sanity Sync] Inspecting delete constraints for product category: [${normalizedSlug}]`,
       );
 
-    
       const { data: categories } = await query.graph({
         entity: "product_category",
         fields: ["id", "handle", "products.id"],
@@ -58,14 +57,14 @@ export const deleteCatalogItemStep = createStep(
         return new StepResponse<DeleteCatalogItemResult>({ deleted: false });
       }
 
-      // 2. Prevent deletion if active products remain mapped to this category
+      // Prevent deletion if active products remain mapped to this category
       if (targetCategory.products && targetCategory.products.length > 0) {
         const errorMsg = `Aborting category deletion: Category [${normalizedSlug}] has ${targetCategory.products.length} products associated with it.`;
         logger.error(`${errorMsg}`);
         throw new MedusaError(MedusaError.Types.NOT_ALLOWED, errorMsg);
       }
 
-      // 3. Complete structural category deletion safely
+      // Complete structural category deletion safely
       await productModuleService.deleteProductCategories([targetCategory.id]);
       logger.info(`Category [${normalizedSlug}] successfully dropped.`);
 

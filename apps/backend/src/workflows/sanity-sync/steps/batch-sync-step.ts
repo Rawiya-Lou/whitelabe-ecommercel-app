@@ -1,9 +1,9 @@
 import { createStep, StepResponse } from "@medusajs/framework/workflows-sdk";
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils";
-import { 
-  IProductModuleService, 
-  IInventoryService, 
-  Logger 
+import {
+  IProductModuleService,
+  IInventoryService,
+  Logger,
 } from "@medusajs/framework/types";
 import { SanityMedusaSyncService } from "../utils/batch-service";
 import { SanityProductPayload, SystemDefaultsDTO } from "../types";
@@ -17,13 +17,19 @@ interface BatchSyncStepInput {
 export const batchSyncStep = createStep(
   "batch-sync",
   async (input: BatchSyncStepInput, { container }) => {
-    // 1. Resolve Medusa framework layers from runtime container
-    const productModuleService = container.resolve(Modules.PRODUCT) as IProductModuleService;
-    const inventoryModuleService = container.resolve(Modules.INVENTORY) as IInventoryService;
+    // Resolve Medusa framework layers from runtime container
+    const productModuleService = container.resolve(
+      Modules.PRODUCT,
+    ) as IProductModuleService;
+    const inventoryModuleService = container.resolve(
+      Modules.INVENTORY,
+    ) as IInventoryService;
     const remoteLinkService = container.resolve(ContainerRegistrationKeys.LINK);
-    const logger = container.resolve(ContainerRegistrationKeys.LOGGER) as Logger;
+    const logger = container.resolve(
+      ContainerRegistrationKeys.LOGGER,
+    ) as Logger;
 
-    // 2. Instantiate using the layout expected by your SanityMedusaSyncService constructor
+    // Instantiate using the layout expected by your SanityMedusaSyncService constructor
     const batchService = new SanityMedusaSyncService({
       [Modules.PRODUCT]: productModuleService,
       [Modules.INVENTORY]: inventoryModuleService,
@@ -31,9 +37,11 @@ export const batchSyncStep = createStep(
       [ContainerRegistrationKeys.LOGGER]: logger,
     });
 
-    logger.info(`[Sanity Sync DAG] Initializing processing lane for ${input.products.length} catalog items.`);
+    logger.info(
+      `[Sanity Sync DAG] Initializing processing lane for ${input.products.length} catalog items.`,
+    );
 
-    // 3. Delegate execution directly to the pipeline runner matrix
+    // Delegate execution directly to the pipeline runner matrix
     const resultMetrics = await batchService.batchSyncProducts(
       input.products,
       {
@@ -42,13 +50,13 @@ export const batchSyncStep = createStep(
         salesChannelId: input.systemDefaults.salesChannelId,
         stockLocationId: input.systemDefaults.stockLocationId,
       },
-      25 // Controlled execution batch sizing
+      25, // Controlled execution batch sizing
     );
 
     logger.info(
-      `[Sanity Sync DAG] Batch process completed. Created: ${resultMetrics.created}, Inventory Links Linked: ${resultMetrics.inventoryLinked}, Failures: ${resultMetrics.failures.length}`
+      `[Sanity Sync DAG] Batch process completed. Created: ${resultMetrics.created}, Inventory Links Linked: ${resultMetrics.inventoryLinked}, Failures: ${resultMetrics.failures.length}`,
     );
 
     return new StepResponse(resultMetrics);
-  }
+  },
 );

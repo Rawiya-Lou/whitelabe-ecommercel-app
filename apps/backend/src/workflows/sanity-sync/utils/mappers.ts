@@ -17,6 +17,7 @@ export function mapSanityToMedusaProduct(
   ];
 
   // Resolves asset elements cleanly using fallback defaults
+  // TO_DO: Change the image Urlto the domain fallback Url
   const resolvedImages = product.images && product.images.length > 0
     ? product.images.map((img) => ({ url: img.url || "https://unsplash.com" }))
     : [{ url: "https://unsplash.com" }];

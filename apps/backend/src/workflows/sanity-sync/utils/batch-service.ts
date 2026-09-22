@@ -72,10 +72,9 @@ export class SanityMedusaSyncService {
               config.categoryIds,
               config.shippingProfileId,
               config.salesChannelId,
-              
             );
 
-            // 2. Persist Product Registry via Core Engine
+            // Persist Product Registry via Core Engine
             const createdProducts = await productModuleService.createProducts([
               medusaPayload,
             ]);
@@ -89,7 +88,7 @@ export class SanityMedusaSyncService {
             }
             executionResults.created++;
 
-            // 3. Provision Inventory Mapping using architectural cross-module Links
+            // Provision Inventory Mapping using architectural cross-module Links
             const variant = targetProduct.variants?.[0];
             const shouldManageInventory = sanityProd.manage_inventory ?? true;
 
@@ -99,11 +98,21 @@ export class SanityMedusaSyncService {
                 await inventoryModuleService.createInventoryItems([
                   {
                     sku: variant.sku,
-                    origin_country: sanityProd.originCountry ? sanityProd.originCountry.toLocaleLowerCase().trim() : 'Unknown origin country',
-                    weight: sanityProd.weightGrams ? parseFloat(sanityProd.weightGrams.toString()) : 0,
-                    length: sanityProd.lengthMm ? parseFloat(sanityProd.lengthMm.toString()) : 0,
-                    width: sanityProd.widthMm ? parseFloat(sanityProd.widthMm.toString()) : 0,
-                    height: sanityProd.heightMm ? parseFloat(sanityProd.heightMm.toString()) : 0,
+                    origin_country: sanityProd.originCountry
+                      ? sanityProd.originCountry.toLocaleLowerCase().trim()
+                      : "Unknown origin country",
+                    weight: sanityProd.weightGrams
+                      ? parseFloat(sanityProd.weightGrams.toString())
+                      : 0,
+                    length: sanityProd.lengthMm
+                      ? parseFloat(sanityProd.lengthMm.toString())
+                      : 0,
+                    width: sanityProd.widthMm
+                      ? parseFloat(sanityProd.widthMm.toString())
+                      : 0,
+                    height: sanityProd.heightMm
+                      ? parseFloat(sanityProd.heightMm.toString())
+                      : 0,
                   },
                 ]);
 

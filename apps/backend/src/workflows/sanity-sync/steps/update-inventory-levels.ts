@@ -1,4 +1,3 @@
-// apps/backend/src/workflows/sanity-sync/steps/update-inventory-levels.ts
 import { createStep, StepResponse } from "@medusajs/framework/workflows-sdk";
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils";
 import { IInventoryService, Logger } from "@medusajs/framework/types";
@@ -39,7 +38,7 @@ export const updateInventoryLevelsStep = createStep(
     const previousQty = level?.stocked_quantity ?? 0;
 
     if (!levelExistedInitially) {
-      // 🌟 UPSERT FALLBACK LANE: Create the missing row if an old broken run skipped it
+      // Create the missing row if an old broken run skipped it
       logger.info(
         `[Sanity Sync] Item [${input.inventoryItemId}] not yet stocked at Location [${input.stockLocationId}]. Initializing level configuration row.`
       );
@@ -86,7 +85,7 @@ export const updateInventoryLevelsStep = createStep(
     ) as Logger;
 
     if (!compensateContext.levelExistedInitially) {
-      // 💡 ROBUST ROLLBACK: If this step built the row, delete it entirely to clean up the DB
+      // If this step built the row, delete it entirely to clean up the DB
       logger.warn(
         `[Workflow Rollback] Downstream failure encountered. Purging newly initialized stock row index.`
       );

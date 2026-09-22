@@ -1,4 +1,3 @@
-// apps/backend/src/api/store/sanity-sync/route.ts
 import { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils";
 import { Logger } from "@medusajs/framework/types";
@@ -17,18 +16,21 @@ export interface SanityRawWebhookReference {
   _type: "reference";
 }
 
+type OperationTypes = "update" | "create" | "batch" | "delete";
+type DocumentType ="product" | "category"
+
 export interface SanityRawWebhookImage {
   _type: "image";
   asset: SanityRawWebhookReference;
   alt?: string;
 }
 
-const DEFAULT_FALLBACK = "https://yourdomain.com";
+const DEFAULT_FALLBACK = "https://domain.com";
 
 const getSanityCdnUrl = (refId: string, projectId: string, dataset: string, fallbackUrl: string): string => {
   if (!refId) return fallbackUrl;
   const [, id, dimensions, extension] = refId.split("-");
-  return `https://sanity.io{projectId}/${dataset}/${id}-${dimensions}.${extension}`;
+  return `https://sanity.io/${projectId}/${dataset}/${id}-${dimensions}.${extension}`;
 };
 
 export async function POST(
@@ -38,15 +40,17 @@ export async function POST(
   const logger = req.scope.resolve(ContainerRegistrationKeys.LOGGER) as Logger;
   const authToken = req.headers["x-sanity-sync-token"] as string | undefined;
 
-  const projectId = process.env.SANITY_PROJECT_ID || "mock-sanity-project-id-2026";
+  const projectId = process.env.SANITY_PROJECT_ID || "mock-sanity-project-test-id-2026";
+
   const dataset = process.env.SANITY_DATASET || "production";
+
   const imgFallbackUrl = process.env.SANITY_IMAGE_FALLBACK_URL || DEFAULT_FALLBACK;
 
-  const localBypassSecret = "development-override-token";
+  const localBypassSecret = "development-test-override-token";
+
 const isValidToken = authToken && (authToken === process.env.SANITY_SYNC_SECRET_TOKEN || authToken === localBypassSecret);
 
 
-  // 🛡️ SECURITY SEPARATION GUARD
   if (!isValidToken) {
   logger.warn("[Sanity Sync Hook] Unauthorized Sanity CMS Sync Attempt Blocked.");
   res.status(401).send("Unauthorized");
@@ -62,7 +66,6 @@ const isValidToken = authToken && (authToken === process.env.SANITY_SYNC_SECRET_
   try {
     const rawPayload = req.body;
 
-    // 💡 Enterprise Adaptive Normalization:
     // Automatically read fields directly from the root if it is a live Sanity webhook,
     // or fall back to payload wrappers if it is a PowerShell terminal mock.
     const operation = rawPayload.operation || (rawPayload._action === "update" ? "update" : "create");
@@ -81,13 +84,11 @@ const isValidToken = authToken && (authToken === process.env.SANITY_SYNC_SECRET_
       return;
     }
 
-    // 🖼️ TRANSFORM ASSET IMAGES ARRAY
     const mappedImages: SanityImagePayload[] = (cmsProduct.images as SanityRawWebhookImage[] | undefined)?.map((img) => ({
       url: img?.asset?._ref ? getSanityCdnUrl(img.asset._ref, projectId, dataset, imgFallbackUrl) : imgFallbackUrl,
       altText: img.alt || "Product catalog element"
     })) || [];
 
-    //  TRANSFORM ASSOCIATED CATEGORIES
     const categoriesPayload: SanityCategoryPayload[] = (cmsProduct.categories as (SanityRawWebhookReference | string)[] | undefined)?.map((ref) => {
       const categoryId = typeof ref === "string" ? ref : ref?._ref;
       const safeId = categoryId || "";
@@ -99,7 +100,6 @@ const isValidToken = authToken && (authToken === process.env.SANITY_SYNC_SECRET_
       ? (cmsProduct.slug as any).current
       : cmsProduct.slug;
 
-    // STANDARDIZE REGIONAL PAYLOAD MATRIX
     const standardizedProductData: SanityProductPayload = {
       _id: cmsProduct._id,
       title: cmsProduct.title || { en: "Untitled Product" },
@@ -123,12 +123,11 @@ const isValidToken = authToken && (authToken === process.env.SANITY_SYNC_SECRET_
     };
 
     const standardizedInput: SanitySyncWorkflowInput = {
-      operation: operation as any,
-      documentType: documentType as any,
+      operation: operation as OperationTypes,
+      documentType: documentType as DocumentType,
       productData: standardizedProductData
     };
 
-    // DISPATCH TO FLAT WORKFLOW ENGINE
     await sanitySyncProductWorkflow(req.scope).run({
       input: standardizedInput
     });
