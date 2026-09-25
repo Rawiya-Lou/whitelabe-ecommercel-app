@@ -217,10 +217,10 @@ jobs:
           npm run test:sync:e2e
       - name: Output E2E Backend Logs on Failure
         if: failure()
-        working-directory: ./apps/backend
+        
         run: |
           echo "=== Sanity Sync Live E2E Server Log Streams ==="
-          cat medusa-e2e.log     
+          cat ./apps/backend/medusa-e2e.log    
 
       - name: Validate Whitelabel Database Seeding Contracts
         working-directory: ./apps/backend
