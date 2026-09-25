@@ -23,7 +23,7 @@ function getTestIncludePatterns(): string[] {
   }
 
   // Fallback: Default to all unit and integration test specs
-  return ["src/**/__tests__/**/*.[jt]s", "integration-tests/**/*.spec.[jt]s"];
+  return ["src/**/__tests__/**/*.[jt]s", "src/**/*.{test,spec}.[jt]s?(x)", "integration-tests/**/*.spec.[jt]s"];
 }
 
 export default defineConfig({
@@ -32,12 +32,8 @@ export default defineConfig({
     environment: "node",
     globals: true,
     setupFiles: ["./integration-tests/setup.js"],
-    include: [
-      "src/**/__tests__/**/*.[jt]s",
-      "src/**/*.{test,spec}.[jt]s?(x)",
-      "integration-tests/**/*.spec.[jt]s",
-    ],
-    exclude: ["**/node_modules/**", "dist/**", ".medusa/**"],
+    include: getTestIncludePatterns(),
+    exclude: ["**/node_modules/**", "dist/**", ".medusa/**", "**/src/workflows/sanity-sync/__tests__/**"],
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
