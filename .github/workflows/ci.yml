@@ -212,7 +212,7 @@ jobs:
           STRIPE_WEBHOOK_SECRET: "whsec_CI_MOCK_SECRET"
         run: |
           npx run predeploy
-          npx medusa develop > medusa-e2e.log 2>&1 & sleep 15
+          nohup npx medusa develop > medusa-e2e.log 2>&1 & sleep 15
           npx wait-on http://127.0.0.1:9000 --timeout 180000
           npm run test:sync:e2e
       - name: Output E2E Backend Logs on Failure
