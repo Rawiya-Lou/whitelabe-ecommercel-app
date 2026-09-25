@@ -19,8 +19,7 @@ env:
   NEXT_PUBLIC_MEDUSA_BACKEND_URL: "http://localhost:9000"
   NEXT_PUBLIC_SANITY_PROJECT_ID: "mockid12"
   NEXT_PUBLIC_SANITY_DATASET: "testdataset"
-  NEXT_PUBLIC_STRIPE_KEY: "pk_test_CI_MOCK_KEY_FOR_BUILD_PURPOSES" 
-  
+  NEXT_PUBLIC_STRIPE_KEY: "pk_test_CI_MOCK_KEY_FOR_BUILD_PURPOSES"
 
 jobs:
   # JOB 1: Detect Changed Files (Path Filtering)
@@ -191,7 +190,7 @@ jobs:
       - name: Unit Tests (Vitest)
         working-directory: ./apps/backend
         env:
-          STRIPE_API_KEY: "sk_test_CI_MOCK_KEY" 
+          STRIPE_API_KEY: "sk_test_CI_MOCK_KEY"
           STRIPE_WEBHOOK_SECRET: "whsec_CI_MOCK_SECRET"
 
         run: npx turbo run test --filter=@dtc/backend
@@ -200,9 +199,32 @@ jobs:
         working-directory: ./apps/backend
 
         run: npx turbo run build --filter=@dtc/backend
+
+      - name: Run Sanity Synchronization E2E Integration Suite
+        working-directory: ./apps/backend
+        env:
+          DATABASE_URL: ${{ secrets.NEON_CI_DATABASE_URL }}
+          JWT_SECRET: ${{ env.JWT_SECRET }}
+          COOKIE_SECRET: ${{ env.COOKIE_SECRET }}
+          SANITY_SYNC_SECRET_TOKEN: "development-test-override-token"
+          MEDUSA_ADMIN_DASHBOARD_DISABLED: "true"
+          STRIPE_API_KEY: "sk_test_CI_MOCK_KEY"
+          STRIPE_WEBHOOK_SECRET: "whsec_CI_MOCK_SECRET"
+        run: |
+          npx medusa db:migrate
+          npx medusa start > medusa-e2e.log 2>&1 & sleep 12
+          npx wait-on http://127.0.0.1:9000 --timeout 180000
+          npm run test:sync:e2e
+      - name: Output E2E Backend Logs on Failure
+        if: failure()
+        working-directory: ./apps/backend
+        run: |
+          echo "=== Sanity Sync Live E2E Server Log Streams ==="
+          cat medusa-e2e.log     
+
       - name: Validate Whitelabel Database Seeding Contracts
         working-directory: ./apps/backend
-        env: 
+        env:
           DATABASE_URL: ${{ secrets.NEON_CI_DATABASE_URL}}
           MEDUSA_ADMIN_DASHBOARD_DISABLED: "true"
           ACTIVE_SHIPPING_PROVIDER: "manual_manual"
@@ -215,8 +237,7 @@ jobs:
           JWT_SECRET: "super-secret-ci-jwt-token-string-32-chars-long"
           COOKIE_SECRET: "super-secret-ci-cookie-token-string-32-chars-long"
         run: |
-          npm run predeploy  
-
+          npm run predeploy
 
   cms-ci:
     name: CMS (Sanity Studio) - Quality & Build
