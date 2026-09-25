@@ -18,6 +18,7 @@ interface DeleteCatalogItemInput {
 interface DeleteCatalogItemResult {
   deleted: boolean;
   id?: string;
+  error?: string;
 }
 
 export const deleteCatalogItemStep = createStep(
@@ -62,6 +63,10 @@ export const deleteCatalogItemStep = createStep(
         const errorMsg = `Aborting category deletion: Category [${normalizedSlug}] has ${targetCategory.products.length} products associated with it.`;
         logger.error(`${errorMsg}`);
         throw new MedusaError(MedusaError.Types.NOT_ALLOWED, errorMsg);
+        return new StepResponse<DeleteCatalogItemResult>({
+          deleted: false,
+          error: "relational_constraint"
+        })
       }
 
       // Complete structural category deletion safely

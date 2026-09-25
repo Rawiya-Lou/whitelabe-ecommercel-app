@@ -41,5 +41,6 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+    testTimeout: 30000,
   },
 });

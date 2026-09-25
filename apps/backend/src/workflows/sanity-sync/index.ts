@@ -47,19 +47,16 @@ export const sanitySyncProductWorkflow = createWorkflow(
           categories: batchChunkParams.categories,
         }).config({ name: "sync-batch-product-categories" });
 
-        const batchSyncResult = batchSyncStep({
-          products: batchChunkParams.products,
-          categoryIds: batchVerifiedCategoryIds,
-          systemDefaults: systemDefaults,
-        });
-
-        return new WorkflowResponse(
-          transform({ batchSyncResult }, (data) => ({
-            success: true,
-            operation: "batched" as const,
-            details: data.batchSyncResult,
-          })),
+        const flattenedBatchInput = transform(
+          { batchChunkParams, batchVerifiedCategoryIds, systemDefaults },
+          (data) => ({
+            products: data.batchChunkParams.products,
+            categoryIds: data.batchVerifiedCategoryIds,
+            systemDefaults: data.systemDefaults,
+          }),
         );
+
+        batchSyncStep(flattenedBatchInput);
       },
     );
 
@@ -80,38 +77,38 @@ export const sanitySyncProductWorkflow = createWorkflow(
               : ("product" as const),
         }));
 
-        const deleteStepResult = deleteCatalogItemStep(deletionParams);
-
-        return new WorkflowResponse(
-          transform({ deleteStepResult }, (data) => ({
-            success: deleteStepResult.deleted,
-            operation: "deleted" as const,
-            details: deleteStepResult,
-          })),
-        );
+        deleteCatalogItemStep(deletionParams);
       },
+    );
+
+    const isSingleUpsert = transform(
+      { input },
+      (data) =>
+        data.input.operation === "create" || data.input.operation === "update",
     );
 
     // LAYER 3: SINGLE RECORD INGESTION PIPELINE (UPSERT GRAPH)
 
-    const rawCategories = transform(
-      { input },
-      (data) => data.input.productData?.categories ?? [],
+    const rawCategories = transform({ input, isSingleUpsert }, (data) =>
+      data.isSingleUpsert ? (data.input.productData?.categories ?? []) : [],
     );
 
     const verifiedCategoryIds = syncProductCategoriesStep({
       categories: rawCategories,
     }).config({ name: "sync-single-product-categories" });
 
-    const variantSkuToken = transform(
-      { input },
-      (data) => `SANITY-${(data.input.productData?._id ?? "").toUpperCase()}`,
+    const variantSkuToken = transform({ input, isSingleUpsert }, (data) =>
+      data.isSingleUpsert
+        ? `SANITY-${(data.input.productData?._id ?? "").toUpperCase()}`
+        : "",
     );
 
     const lookupParams = transform(
-      { input, variantSku: variantSkuToken },
+      { input, variantSku: variantSkuToken, isSingleUpsert },
       (data) => ({
-        productSlug: data.input.productData?.slug ?? "",
+        productSlug: data.isSingleUpsert
+          ? (data.input.productData?.slug ?? "")
+          : "bypass-slug",
         variantSku: data.variantSku,
       }),
     );
@@ -120,10 +117,10 @@ export const sanitySyncProductWorkflow = createWorkflow(
 
     // THE PRODUCT ALREADY EXISTS (PURE UPDATE PATH)
     const isUpdateOp = transform(
-      { inspection, input },
-      (data) =>
-        data.inspection.productExists && data.input.operation !== "delete",
+      { inspection, input, isSingleUpsert },
+      (data) => Boolean(data.isSingleUpsert && data.inspection.productExists),
     );
+
     when("product-exists-update-branch", isUpdateOp, (cond) => cond).then(
       () => {
         const updatePayload = transform(
@@ -205,9 +202,8 @@ export const sanitySyncProductWorkflow = createWorkflow(
 
     // THE PRODUCT IS ABSENT (PURE CREATION PATH)
     const isCreateOp = transform(
-      { inspection, input },
-      (data) =>
-        !data.inspection.productExists && data.input.operation !== "delete",
+      { inspection, input, isSingleUpsert },
+      (data) => Boolean(data.isSingleUpsert && !data.inspection.productExists),
     );
     when("product-absent-creation-branch", isCreateOp, (cond) => cond).then(
       () => {
@@ -293,11 +289,16 @@ export const sanitySyncProductWorkflow = createWorkflow(
     );
 
     return new WorkflowResponse(
-      transform({ inspection }, (data) => ({
+      transform({ inspection, input }, (data) => ({
         success: true,
-        operation: data.inspection.productExists
-          ? ("updated" as const)
-          : ("created" as const),
+        operation:
+          data.input.operation === "batch"
+            ? ("batched" as const)
+            : data.input.operation === "delete"
+              ? ("deleted" as const)
+              : data.inspection.productExists
+                ? ("updated" as const)
+                : ("created" as const),
       })),
     );
   },

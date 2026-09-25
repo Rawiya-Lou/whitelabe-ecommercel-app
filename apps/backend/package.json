@@ -25,7 +25,9 @@
     "test:unit": "cross-env TEST_TYPE=unit vitest run --silent --config ./vitest.config.mts",
     "test": "vitest run --config ./vitest.config.mts",
     "test:watch": "vitest --config ./vitest.config.mts",
-    "sync:test": "ts-node scripts/trigger-sanity-sync.ts"
+    "sync:simulate": "ts-node scripts/trigger-sanity-sync.ts",
+
+    "test:sync:e2e": "vitest run src/workflows/sanity-sync/__tests__/sanity-sync.spec.ts --config ./vitest.config.mts"
   },
   "dependencies": {
     "@chargily/chargily-pay": "^2.1.0",
