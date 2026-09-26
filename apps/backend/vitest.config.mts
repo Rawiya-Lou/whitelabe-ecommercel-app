@@ -15,6 +15,9 @@ function getTestIncludePatterns(): string[] {
   if (testType === "integration:modules") {
     return ["src/modules/*/__tests__/**/*.[jt]s"];
   }
+  if(testType === "e2e") {
+    return ["src/workflows/sanity-sync/__tests__/**/*.e2e.spec.[jt]s"]
+  }
   if (testType === "unit") {
     return [
       "src/**/__tests__/**/*.unit.spec.[jt]s",
@@ -26,6 +29,17 @@ function getTestIncludePatterns(): string[] {
   return ["src/**/__tests__/**/*.[jt]s", "src/**/*.{test,spec}.[jt]s?(x)", "integration-tests/**/*.spec.[jt]s"];
 }
 
+function getTestExcludePatterns(): string[] {
+  const testType = process.env.TEST_TYPE;
+  const baseExcludes = ["**/node_modules/**", "dist/**", ".medusa/**"];
+
+  if (testType !== "e2e") {
+    return [...baseExcludes, "src/workflows/sanity-sync/__tests__/**"];
+  }
+
+  return baseExcludes;
+}
+
 export default defineConfig({
   test: {
     name: "backend",
@@ -33,7 +47,7 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./integration-tests/setup.js"],
     include: getTestIncludePatterns(),
-    exclude: ["**/node_modules/**", "dist/**", ".medusa/**", "**/src/workflows/sanity-sync/__tests__/**"],
+    exclude: getTestExcludePatterns(),
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },

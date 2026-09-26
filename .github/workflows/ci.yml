@@ -16,7 +16,7 @@ env:
   DATABASE_URL: "postgres://postgres:postgres@localhost:5432/ci_test_db"
   JWT_SECRET: "super-secret-ci-jwt-token-string-32-chars-long"
   COOKIE_SECRET: "super-secret-ci-cookie-token-string-32-chars-long"
-  NEXT_PUBLIC_MEDUSA_BACKEND_URL: "http://localhost:9000"
+  NEXT_PUBLIC_MEDUSA_BACKEND_URL: "http://127.0.0.1:9000"
   NEXT_PUBLIC_SANITY_PROJECT_ID: "mockid12"
   NEXT_PUBLIC_SANITY_DATASET: "testdataset"
   NEXT_PUBLIC_STRIPE_KEY: "pk_test_CI_MOCK_KEY_FOR_BUILD_PURPOSES"
@@ -133,7 +133,7 @@ jobs:
         run: |
           npx medusa db:migrate
           npx medusa start > medusa-backend.log 2>&1 & sleep 10
-          npx wait-on http://localhost:9000/health --timeout 180000
+          npx wait-on http://127.0.0.1/health --timeout 60000
 
       - name: Check Medusa Backend Logs (if previous step failed)
         if: failure()
@@ -144,14 +144,14 @@ jobs:
       - name: Run Storefront Integration Tests (via Turbo)
 
         env:
-          NEXT_PUBLIC_MEDUSA_BACKEND_URL: "http://localhost:9000"
+          NEXT_PUBLIC_MEDUSA_BACKEND_URL: "http://127.0.0.1:9000"
           NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY}}
         run: npx turbo run test:integration --filter=storefront
 
       - name: Production Build
         working-directory: ./apps/storefront
         env:
-          NEXT_PUBLIC_MEDUSA_BACKEND_URL: "http://localhost:9000"
+          NEXT_PUBLIC_MEDUSA_BACKEND_URL: "http://127.0.0.1:9000"
           NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: ${{secrets.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY}}
           NEXT_PUBLIC_SANITY_PROJECT_ID: ${{secrets.NEXT_PUBLIC_SANITY_PROJECT_ID}}
           NEXT_PUBLIC_SANITY_DATASET: ${{secrets.NEXT_PUBLIC_SANITY_DATASET}}
@@ -204,23 +204,20 @@ jobs:
         working-directory: ./apps/backend
         env:
           DATABASE_URL: ${{ secrets.NEON_CI_DATABASE_URL }}
-          JWT_SECRET: ${{ env.JWT_SECRET }}
-          COOKIE_SECRET: ${{ env.COOKIE_SECRET }}
-          SANITY_SYNC_SECRET_TOKEN: "development-test-override-token"
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          COOKIE_SECRET: ${{ secrets.COOKIE_SECRET }}
+          SANITY_SYNC_SECRET_TOKEN: ${{ secrets.CI_SYNC_TEST_READ_TOKEN}}
           MEDUSA_ADMIN_DASHBOARD_DISABLED: "true"
+          NODE_ENV: test
           STRIPE_API_KEY: "sk_test_CI_MOCK_KEY"
           STRIPE_WEBHOOK_SECRET: "whsec_CI_MOCK_SECRET"
-        run: |
-          npx run predeploy
-          nohup npx medusa develop > medusa-e2e.log 2>&1 & sleep 15
-          npx wait-on http://127.0.0.1:9000 --timeout 180000
-          npm run test:sync:e2e
+        run: npm run ci:sync:e2e
       - name: Output E2E Backend Logs on Failure
         if: failure()
         
         run: |
           echo "=== Sanity Sync Live E2E Server Log Streams ==="
-          cat ./apps/backend/medusa-e2e.log    
+          cat ./apps/backend/medusa-backend.log || echo "No log file found"   
 
       - name: Validate Whitelabel Database Seeding Contracts
         working-directory: ./apps/backend

@@ -20,14 +20,15 @@
     "dev": "medusa develop",
     "lint": "medusa lint",
     "typecheck": "tsc --noEmit",
-    "test:integration:http": "cross-env TEST_TYPE=integration:http vitest run --poolOptions.threads.singleThread --no-file-parallelism --config ./vitest.config.mts",
-    "test:integration:modules": "cross-env TEST_TYPE=integration:modules vitest run --poolOptions.threads.singleThread --no-file-parallelism --config ./vitest.config.mts",
-    "test:unit": "cross-env TEST_TYPE=unit vitest run --silent --config ./vitest.config.mts",
-    "test": "vitest run --config ./vitest.config.mts",
-    "test:watch": "vitest --config ./vitest.config.mts",
+    "test:integration:http": "npx cross-env TEST_TYPE=integration:http vitest run --poolOptions.threads.singleThread --no-file-parallelism --config ./vitest.config.mts",
+    "test:integration:modules": "npx cross-env TEST_TYPE=integration:modules vitest run --poolOptions.threads.singleThread --no-file-parallelism --config ./vitest.config.mts",
+    "test:unit": "npx cross-env TEST_TYPE=unit vitest run --silent --config ./vitest.config.mts",
+    "test": "npx cross-env TEST_TYPE=unit vitest run --config ./vitest.config.mts",
+    "test:watch": "npx cross-env TEST_TYPE=unit vitest --config ./vitest.config.mts",
     "sync:simulate": "ts-node scripts/trigger-sanity-sync.ts",
-
-    "test:sync:e2e": "vitest run src/workflows/sanity-sync/__tests__/sanity-sync.spec.ts --config ./vitest.config.mts"
+    "test:sync:e2e": "npx cross-env TEST_TYPE=e2e vitest run --silent --config ./vitest.config.mts",
+    "medusa:preview": "npm run start",
+    "ci:sync:e2e": "npx start-server-and-test medusa:preview http://127.0.0.1:9000/health test:sync:e2e"
   },
   "dependencies": {
     "@chargily/chargily-pay": "^2.1.0",
@@ -59,6 +60,7 @@
     "prop-types": "^15.8.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "start-server-and-test": "^3.0.12",
     "ts-node": "^10.9.2",
     "typescript": "^5.6.2",
     "vite": "^7.3.6",

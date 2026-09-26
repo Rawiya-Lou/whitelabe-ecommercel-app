@@ -3,11 +3,10 @@ import { loadEnv } from "@medusajs/framework/utils";
 
 loadEnv("test", process.cwd());
 
-const BASE_URL = "http://localhost:9000/store/sanity-sync";
-const BYPASS_PUBLISH_KEY =
-  "pk_ea79ea0e54d16e2c6faf4b4bfb9049d3ad3b9a10fd7cc866d566f518f972999a";
-const VALID_DEV_SECRET =
-  process.env.SANITY_SYNC_SECRET_TOKEN || "development-test-override-token";
+const BASE_URL = process.env.TEST_BASE_URL;
+const URL = `${BASE_URL}/store/sanity-sync`
+const BYPASS_PUBLISH_KEY = process.env.PUBLISH_KEY || "pk_ea79ea0e54d16e2c6faf4b4bfb9049d3ad3b9a10fd7cc866d566f518f972999a";
+const VALID_DEV_SECRET = process.env.SANITY_SYNC_SECRET_TOKEN || "development-test-override-token";
 
 interface FlatSyncResponseDTO {
   success: boolean;
@@ -35,7 +34,7 @@ describe("Sanity CMS Sync Engine - E2E Lifecycle Matrix Suite", () => {
     if (secretHeader) headers["x-sanity-sync-token"] = secretHeader;
     if (publishKeyHeader) headers["x-publishable-api-key"] = publishKeyHeader;
 
-    return await fetch(BASE_URL, {
+    return await fetch(URL, {
       method: "POST",
       headers,
       body: JSON.stringify(payload),
