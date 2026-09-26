@@ -204,6 +204,7 @@ jobs:
         working-directory: ./apps/backend
         env:
           DATABASE_URL: ${{ secrets.NEON_CI_DATABASE_URL }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           COOKIE_SECRET: ${{ secrets.COOKIE_SECRET }}
           SANITY_SYNC_SECRET_TOKEN: ${{ secrets.CI_SYNC_TEST_READ_TOKEN}}

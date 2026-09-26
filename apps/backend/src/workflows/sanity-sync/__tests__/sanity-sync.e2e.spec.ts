@@ -3,7 +3,7 @@ import { loadEnv } from "@medusajs/framework/utils";
 
 loadEnv("test", process.cwd());
 
-const BASE_URL = process.env.TEST_BASE_URL;
+const BASE_URL = process.env.TEST_BASE_URL || "http://127.0.0.1:9000";
 const URL = `${BASE_URL}/store/sanity-sync`
 const BYPASS_PUBLISH_KEY = process.env.PUBLISH_KEY || "pk_ea79ea0e54d16e2c6faf4b4bfb9049d3ad3b9a10fd7cc866d566f518f972999a";
 const VALID_DEV_SECRET = process.env.SANITY_SYNC_SECRET_TOKEN || "development-test-override-token";
