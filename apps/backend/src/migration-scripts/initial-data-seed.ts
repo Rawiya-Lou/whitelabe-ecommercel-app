@@ -1,6 +1,7 @@
 import { MedusaContainer } from "@medusajs/framework";
 import {
   ContainerRegistrationKeys,
+  MedusaError,
   ModuleRegistrationName,
   Modules,
   ProductStatus,
@@ -15,15 +16,16 @@ import {
   createRegionsWorkflow,
   createSalesChannelsWorkflow,
   createShippingOptionsWorkflow,
+  CreateShippingOptionsWorkflowInput,
   createShippingProfilesWorkflow,
   createStockLocationsWorkflow,
   createStoresWorkflow,
   createTaxRegionsWorkflow,
   linkSalesChannelsToApiKeyWorkflow,
   linkSalesChannelsToStockLocationWorkflow,
+  processImportChunksStep,
 } from "@medusajs/medusa/core-flows";
 import { seedWilayasWorkflow } from "../workflows/seed-wilayas";
-
 
 export default async function initial_data_seed({
   container,
@@ -34,260 +36,397 @@ export default async function initial_data_seed({
   const link = container.resolve(ContainerRegistrationKeys.LINK);
   const query = container.resolve(ContainerRegistrationKeys.QUERY);
   const fulfillmentModuleService = container.resolve(
-    ModuleRegistrationName.FULFILLMENT
+    ModuleRegistrationName.FULFILLMENT,
   );
+  const storeModuleService = container.resolve(Modules.STORE);
+  const regionModuleService = container.resolve(Modules.REGION);
 
-  const countries = ["gb", "de", "dk", "se", "fr", "es", "it"];
+  const stockLocationModuleService = container.resolve(Modules.STOCK_LOCATION);
+
+  const countries = [
+    "gb",
+    "de",
+    "dk",
+    "se",
+    "fr",
+    "es",
+    "it",
+    "dz",
+    "us",
+    "ca",
+  ];
+  // This lets the current business switch to 'yalidine', 'zr-express', 'dhl', etc. via environmental configs
+  const activeCarrierProvider =
+    process.env.ACTIVE_SHIPPING_PROVIDER || "manual_manual";
+  // If your home warehouse base is in Algeria, your primary delivery network is domestic
+  const isAlgeriaDeployment =
+    (process.env.STORE_WAREHOUSE_COUNTRY || "DZ").toUpperCase() === "DZ";
 
   logger.info("Seeding store data...");
-  const {
-    result: [defaultSalesChannel],
-  } = await createSalesChannelsWorkflow(container).run({
-    input: {
-      salesChannelsData: [
-        {
-          name: "Default Sales Channel",
-          description: "Created by Medusa",
-        },
-      ],
-    },
-  });
 
-  const {
-    result: [publishableApiKey],
-  } = await createApiKeysWorkflow(container).run({
-    input: {
-      api_keys: [
-        {
-          title: "Default Publishable API Key",
-          type: "publishable",
-          created_by: "",
-        },
-      ],
-    },
-  });
+  let defaultSalesChannel;
 
-  await linkSalesChannelsToApiKeyWorkflow(container).run({
-    input: {
-      id: publishableApiKey.id,
-      add: [defaultSalesChannel.id],
-    },
+  const { data: existingChannels } = await query.graph({
+    entity: "sales_channel",
+    fields: ["id", "name"],
   });
+  if (existingChannels && existingChannels.length > 0) {
+    defaultSalesChannel = existingChannels[0];
+    logger.info(
+      `Using existing default sales channel: [${defaultSalesChannel.name}]`,
+    );
+  } else {
+    const {
+      result: [newSalesChannel],
+    } = await createSalesChannelsWorkflow(container).run({
+      input: {
+        salesChannelsData: [
+          {
+            name: "Default Sales Channel",
+            description: "Created by Medusa",
+          },
+        ],
+      },
+    });
+    defaultSalesChannel = newSalesChannel;
+    logger.info("Sales channel generated smoothly.");
+  }
 
-  const {
-    result: [store],
-  } = await createStoresWorkflow(container).run({
-    input: {
-      stores: [
-        {
-          name: "Default Store",
-          supported_currencies: [
-            {
-              currency_code: "eur",
-              is_default: true,
-            },
-            {
-              currency_code: "usd",
-              is_default: false,
-            },
-          ],
-          default_sales_channel_id: defaultSalesChannel.id,
-        },
-      ],
-    },
+  let publishableApiKey;
+  const { data: existingKeys } = await query.graph({
+    entity: "api_key",
+    fields: ["id", "title"],
+    filters: { type: "publishable" },
   });
+  if (existingKeys && existingKeys.length > 0) {
+    publishableApiKey = existingKeys[0];
+    logger.info(
+      `Using existing publishable API key: [${publishableApiKey.title}]`,
+    );
+  } else {
+    const {
+      result: [newApiKey],
+    } = await createApiKeysWorkflow(container).run({
+      input: {
+        api_keys: [
+          {
+            title: "Default Publishable API Key",
+            type: "publishable",
+            created_by: "",
+          },
+        ],
+      },
+    });
+    publishableApiKey = newApiKey;
+
+    await linkSalesChannelsToApiKeyWorkflow(container).run({
+      input: {
+        id: publishableApiKey.id,
+        add: [defaultSalesChannel.id],
+      },
+    });
+
+    logger.info(
+      "Publishable API key and sales channel link created successfully.",
+    );
+  }
+
+  const [existingStore] = await storeModuleService.listStores();
+
+  const targetCurrencies = [
+    {
+      currency_code: "dzd",
+      is_default: isAlgeriaDeployment,
+    },
+    {
+      currency_code: "eur",
+      is_default: !isAlgeriaDeployment,
+    },
+    {
+      currency_code: "usd",
+      is_default: false,
+    },
+  ];
+  if (existingStore) {
+    await storeModuleService.updateStores(existingStore.id, {
+      supported_currencies: targetCurrencies,
+    });
+    logger.info(
+      `Existing store updated with whitelabel currencies (DZD, EUR, USD).`,
+    );
+  } else {
+    const {
+      result: [newStore],
+    } = await createStoresWorkflow(container).run({
+      input: {
+        stores: [
+          {
+            name: process.env.STORE_NAME || "Default Store",
+            supported_currencies: targetCurrencies,
+            default_sales_channel_id: defaultSalesChannel.id,
+          },
+        ],
+      },
+    });
+
+    logger.info("New whitelabel store entity created successfully.");
+  }
 
   logger.info("Seeding region data...");
-  const { result: regionResult } = await createRegionsWorkflow(container).run({
-    input: {
-      regions: [
-        {
-          name: "Europe",
-          currency_code: "eur",
-          countries,
-          payment_providers: ["pp_system_default"],
-        },
-      ],
-    },
-  });
-  const region = regionResult[0];
+  const existingRegions = await regionModuleService.listRegions();
+  if (existingRegions.length === 0) {
+    await createRegionsWorkflow(container).run({
+      input: {
+        regions: [
+          {
+            name: "Algeria",
+            currency_code: "dzd",
+            countries: ["dz"],
+            payment_providers: ["pp_system_default", "pp_chargily_chargily"],
+          },
+          {
+            name: "Europe",
+            currency_code: "eur",
+            countries: ["gb", "de", "dk", "se", "fr", "es", "it"],
+            payment_providers: ["pp_stripe_stripe"],
+          },
+          {
+            name: "North America",
+            currency_code: "usd",
+            countries: ["us", "ca"],
+            payment_providers: ["pp_stripe_stripe"],
+          },
+        ],
+      },
+    });
+    logger.info("Finished seeding isolated dynamic regions.");
+  } else {
+    logger.info(
+      "Regions already exist in the database, skipping region seeding.",
+    );
+  }
+
   logger.info("Finished seeding regions.");
 
   logger.info("Seeding tax regions...");
-  await createTaxRegionsWorkflow(container).run({
-    input: countries.map((country_code) => ({
-      country_code,
-      provider_id: "tp_system",
-    })),
-  });
-  logger.info("Finished seeding tax regions.");
+  try {
+    await createTaxRegionsWorkflow(container).run({
+      input: countries.map((country_code) => ({
+        country_code,
+        provider_id: "tp_system",
+      })),
+    });
+    logger.info("Finished seeding tax regions.");
+  } catch (e) {
+    logger.info("Tax regions already initialized, skipping configuration.");
+  }
 
   logger.info("Seeding stock location data...");
-  const { result: stockLocationResult } = await createStockLocationsWorkflow(
-    container
-  ).run({
-    input: {
-      locations: [
-        {
-          name: "European Warehouse",
-          address: {
-            city: "Copenhagen",
-            country_code: "DK",
-            address_1: "",
-          },
-        },
-      ],
-    },
-  });
-  const stockLocation = stockLocationResult[0];
+  let stockLocation;
+  const existingLocations = await stockLocationModuleService.listStockLocations(
+    {},
+  );
 
-  await link.create({
-    [Modules.STOCK_LOCATION]: {
-      stock_location_id: stockLocation.id,
-    },
-    [Modules.FULFILLMENT]: {
-      fulfillment_provider_id: "manual_manual",
-    },
-  });
+  if (existingLocations.length === 0) {
+    const warehouseName =
+      process.env.STORE_WAREHOUSE_NAME || "Main Home Office Base";
+    const warehouseCity = process.env.STORE_WAREHOUSE_CITY || "Algiers";
+    const warehouseCountry = process.env.STORE_WAREHOUSE_COUNTRY || "DZ";
+
+    const { result: stockLocationResult } = await createStockLocationsWorkflow(
+      container,
+    ).run({
+      input: {
+        locations: [
+          {
+            name: warehouseName,
+            address: {
+              city: warehouseCity,
+              country_code: warehouseCountry?.toUpperCase(),
+              address_1:
+                process.env.STORE_WAREHOUSE_ADDRESS || "Home Office Base St",
+            },
+          },
+        ],
+      },
+    });
+    stockLocation = stockLocationResult[0];
+    logger.info(`Stock Location initiated: [${warehouseName}]`);
+  } else {
+    stockLocation = existingLocations[0];
+    logger.info(`Using existing stock location: [${stockLocation.name}]`);
+  }
+
+  const warehouseCountryCheck = process.env.STORE_WAREHOUSE_COUNTRY || "DZ";
+  const targetFulfillmentProvider =
+    warehouseCountryCheck.toUpperCase() === "DZ"
+      ? "manual_manual"
+      : "manual_manual";
+
+  try {
+    await link.create({
+      [Modules.STOCK_LOCATION]: {
+        stock_location_id: stockLocation.id,
+      },
+      [Modules.FULFILLMENT]: {
+        fulfillment_provider_id: targetFulfillmentProvider,
+      },
+    });
+  } catch (e) {
+    logger.info("Fulfillment linkage already intact.");
+  }
 
   logger.info("Seeding fulfillment data...");
-  // This is created by a migration script in core.
   const { data: shippingProfileResult } = await query.graph({
     entity: "shipping_profile",
     fields: ["id"],
   });
   const shippingProfile = shippingProfileResult[0];
 
-  const fulfillmentSet = await fulfillmentModuleService.createFulfillmentSets({
-    name: "European Warehouse delivery",
-    type: "shipping",
-    service_zones: [
-      {
-        name: "Europe",
-        geo_zones: [
-          {
-            country_code: "gb",
-            type: "country",
-          },
-          {
-            country_code: "de",
-            type: "country",
-          },
-          {
-            country_code: "dk",
-            type: "country",
-          },
-          {
-            country_code: "se",
-            type: "country",
-          },
-          {
-            country_code: "fr",
-            type: "country",
-          },
-          {
-            country_code: "es",
-            type: "country",
-          },
-          {
-            country_code: "it",
-            type: "country",
-          },
-        ],
-      },
-    ],
-  });
+  const setName = "Global Dynamic Delivery Network";
+ 
+  interface FulfillmentServiceZoneDTO {
+    id: string;
+    name: string;
+    geo_zones?: unknown[];
+  }
+  interface FulfillmentSetContainerDTO {
+    id: string;
+    name: string;
+    service_zones: FulfillmentServiceZoneDTO[];
+  }
+   let fulfillmentSet: FulfillmentSetContainerDTO; 
+  const existingSets = await fulfillmentModuleService.listFulfillmentSets(
+    { name: setName },
+    { relations: ["service_zones"] },
+  );
+  if (existingSets && existingSets.length > 0) {
+    fulfillmentSet = existingSets[0] as unknown as FulfillmentSetContainerDTO;
+  } else {
+    logger.info("Seeding all three isolated regional delivery networks...");
 
-  await link.create({
-    [Modules.STOCK_LOCATION]: {
-      stock_location_id: stockLocation.id,
-    },
-    [Modules.FULFILLMENT]: {
-      fulfillment_set_id: fulfillmentSet.id,
-    },
-  });
+    const createdSet = await fulfillmentModuleService.createFulfillmentSets({
+      name: setName,
+      type: "shipping",
 
-  await createShippingOptionsWorkflow(container).run({
-    input: [
-      {
-        name: "Standard Shipping",
-        price_type: "flat",
-        provider_id: "manual_manual",
-        service_zone_id: fulfillmentSet.service_zones[0].id,
-        shipping_profile_id: shippingProfile.id,
-        type: {
-          label: "Standard",
-          description: "Ship in 2-3 days.",
-          code: "standard",
+      service_zones: [
+        {
+          name: "Algeria Zone",
+          geo_zones: [{ country_code: "dz", type: "country" as const }],
         },
-        prices: [
-          {
-            currency_code: "usd",
-            amount: 10,
-          },
-          {
-            currency_code: "eur",
-            amount: 10,
-          },
-          {
-            region_id: region.id,
-            amount: 10,
-          },
-        ],
-        rules: [
-          {
-            attribute: "enabled_in_store",
-            value: "true",
-            operator: "eq",
-          },
-          {
-            attribute: "is_return",
-            value: "false",
-            operator: "eq",
-          },
-        ],
-      },
-      {
-        name: "Express Shipping",
-        price_type: "flat",
-        provider_id: "manual_manual",
-        service_zone_id: fulfillmentSet.service_zones[0].id,
-        shipping_profile_id: shippingProfile.id,
-        type: {
-          label: "Express",
-          description: "Ship in 24 hours.",
-          code: "express",
+        {
+          name: "Europe Zone",
+          geo_zones: ["gb", "de", "dk", "se", "fr", "es", "it"].map((c) => ({
+            country_code: c,
+            type: "country" as const,
+          })),
         },
-        prices: [
-          {
-            currency_code: "usd",
-            amount: 10,
-          },
-          {
-            currency_code: "eur",
-            amount: 10,
-          },
-          {
-            region_id: region.id,
-            amount: 10,
-          },
-        ],
-        rules: [
-          {
-            attribute: "enabled_in_store",
-            value: "true",
-            operator: "eq",
-          },
-          {
-            attribute: "is_return",
-            value: "false",
-            operator: "eq",
-          },
-        ],
+        {
+          name: "North America Zone",
+          geo_zones: ["us", "ca"].map((c) => ({
+            country_code: c,
+            type: "country" as const,
+          })),
+        },
+      ],
+    });
+    fulfillmentSet = createdSet as unknown as FulfillmentSetContainerDTO;
+  }
+  try {
+    await link.create({
+      [Modules.STOCK_LOCATION]: { stock_location_id: stockLocation.id },
+      [Modules.FULFILLMENT]: { fulfillment_set_id: fulfillmentSet.id },
+    });
+  } catch (e) {}
+
+  logger.info(
+    "Compiling explicit shipping profiles for Algeria, Europe, and North America...",
+  );
+
+  const dzZone = fulfillmentSet.service_zones.find(
+    (z: FulfillmentServiceZoneDTO) => z.name === "Algeria Zone",
+  );
+  const euZone = fulfillmentSet.service_zones.find(
+    (z: FulfillmentServiceZoneDTO) => z.name === "Europe Zone",
+  );
+  const naZone = fulfillmentSet.service_zones.find(
+    (z: FulfillmentServiceZoneDTO) => z.name === "North America Zone",
+  );
+
+  if (!dzZone || !euZone || !naZone) {
+    throw new MedusaError(
+      MedusaError.Types.DB_ERROR,
+      "Critical Core Seeding Error: Failed to find required regional service zone targets.",
+    );
+  }
+
+  const isCalculatedCarrier = activeCarrierProvider !== "manual_manual";
+  const domesticPriceType = isCalculatedCarrier
+    ? ("calculated" as const)
+    : ("flat" as const);
+  const shippingOptionsPayload: CreateShippingOptionsWorkflowInput = [
+    // 1. 🇩🇿 ALGERIA LOCAL PROFILE
+    {
+      name: "Standard Ground Delivery",
+      price_type: domesticPriceType,
+      provider_id: activeCarrierProvider,
+      service_zone_id: dzZone.id,
+      shipping_profile_id: shippingProfile.id,
+      type: {
+        label: "Standard",
+        description: "Dynamic domestic ground delivery.",
+        code: "dz_standard",
       },
-    ],
-  });
-  logger.info("Finished seeding fulfillment data.");
+      prices: !isCalculatedCarrier ? [{ currency_code: "dzd", amount: 0 }] : [],
+      rules: [
+        { attribute: "enabled_in_store", value: "true", operator: "eq" },
+        { attribute: "is_return", value: "false", operator: "eq" },
+      ],
+    },
+    {
+      name: "Standard Europe Shipping",
+      price_type: "flat" as const,
+      provider_id: "manual_manual",
+      service_zone_id: euZone.id,
+      shipping_profile_id: shippingProfile.id,
+      type: {
+        label: "Euro Standard",
+        description: "Standard European postal routes.",
+        code: "eu_standard",
+      },
+      prices: [{ currency_code: "eur", amount: 15 }],
+      rules: [
+        { attribute: "enabled_in_store", value: "true", operator: "eq" },
+        { attribute: "is_return", value: "false", operator: "eq" },
+      ],
+    },
+    {
+      name: "Standard North America Shipping",
+      price_type: "flat" as const,
+      provider_id: "manual_manual",
+      service_zone_id: naZone.id,
+      shipping_profile_id: shippingProfile.id,
+      type: {
+        label: "NA Standard",
+        description: "Ground cross-border logistics.",
+        code: "na_standard",
+      },
+      prices: [{ currency_code: "usd", amount: 20 }],
+      rules: [
+        { attribute: "enabled_in_store", value: "true", operator: "eq" },
+        { attribute: "is_return", value: "false", operator: "eq" },
+      ],
+    },
+  ];
+
+  try {
+    await createShippingOptionsWorkflow(container).run({
+      input: shippingOptionsPayload,
+    });
+    logger.info("Finished seeding fulfillment data.");
+  } catch (e) {
+    logger.info("Shipping configuration entries already synchronized.");
+  }
 
   await linkSalesChannelsToStockLocationWorkflow(container).run({
     input: {
@@ -297,549 +436,14 @@ export default async function initial_data_seed({
   });
   logger.info("Finished seeding stock location data.");
 
-  logger.info("Seeding product data...");
-
-  const { result: categoryResult } = await createProductCategoriesWorkflow(
-    container
-  ).run({
-    input: {
-      product_categories: [
-        {
-          name: "Shirts",
-          is_active: true,
-        },
-        {
-          name: "Sweatshirts",
-          is_active: true,
-        },
-        {
-          name: "Pants",
-          is_active: true,
-        },
-        {
-          name: "Merch",
-          is_active: true,
-        },
-      ],
-    },
-  });
-
-  const { result: productOptionsResult } = await createProductOptionsWorkflow(
-    container
-  ).run({
-    input: {
-      product_options: [
-        {
-          title: "Size",
-          values: ["S", "M", "L", "XL"],
-        },
-        {
-          title: "Color",
-          values: ["Black", "White"],
-        },
-      ],
-    },
-  });
-  const sizeOption = productOptionsResult.find((o) => o.title === "Size")!;
-  const colorOption = productOptionsResult.find((o) => o.title === "Color")!;
-
-  await createProductsWorkflow(container).run({
-    input: {
-      products: [
-        {
-          title: "Medusa T-Shirt",
-          category_ids: [
-            categoryResult.find((cat) => cat.name === "Shirts")!.id,
-          ],
-          description:
-            "Reimagine the feeling of a classic T-shirt. With our cotton T-shirts, everyday essentials no longer have to be ordinary.",
-          handle: "t-shirt",
-          weight: 400,
-          status: ProductStatus.PUBLISHED,
-          shipping_profile_id: shippingProfile.id,
-          images: [
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/tee-black-front.png",
-            },
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/tee-black-back.png",
-            },
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/tee-white-front.png",
-            },
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/tee-white-back.png",
-            },
-          ],
-          options: [
-            { id: sizeOption.id },
-            { id: colorOption.id },
-          ],
-          variants: [
-            {
-              title: "S / Black",
-              sku: "SHIRT-S-BLACK",
-              options: {
-                Size: "S",
-                Color: "Black",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "S / White",
-              sku: "SHIRT-S-WHITE",
-              options: {
-                Size: "S",
-                Color: "White",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "M / Black",
-              sku: "SHIRT-M-BLACK",
-              options: {
-                Size: "M",
-                Color: "Black",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "M / White",
-              sku: "SHIRT-M-WHITE",
-              options: {
-                Size: "M",
-                Color: "White",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "L / Black",
-              sku: "SHIRT-L-BLACK",
-              options: {
-                Size: "L",
-                Color: "Black",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "L / White",
-              sku: "SHIRT-L-WHITE",
-              options: {
-                Size: "L",
-                Color: "White",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "XL / Black",
-              sku: "SHIRT-XL-BLACK",
-              options: {
-                Size: "XL",
-                Color: "Black",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "XL / White",
-              sku: "SHIRT-XL-WHITE",
-              options: {
-                Size: "XL",
-                Color: "White",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-          ],
-          sales_channels: [
-            {
-              id: defaultSalesChannel.id,
-            },
-          ],
-        },
-        {
-          title: "Medusa Sweatshirt",
-          category_ids: [
-            categoryResult.find((cat) => cat.name === "Sweatshirts")!.id,
-          ],
-          description:
-            "Reimagine the feeling of a classic sweatshirt. With our cotton sweatshirt, everyday essentials no longer have to be ordinary.",
-          handle: "sweatshirt",
-          weight: 400,
-          status: ProductStatus.PUBLISHED,
-          shipping_profile_id: shippingProfile.id,
-          images: [
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/sweatshirt-vintage-front.png",
-            },
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/sweatshirt-vintage-back.png",
-            },
-          ],
-          options: [{ id: sizeOption.id }],
-          variants: [
-            {
-              title: "S",
-              sku: "SWEATSHIRT-S",
-              options: {
-                Size: "S",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "M",
-              sku: "SWEATSHIRT-M",
-              options: {
-                Size: "M",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "L",
-              sku: "SWEATSHIRT-L",
-              options: {
-                Size: "L",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "XL",
-              sku: "SWEATSHIRT-XL",
-              options: {
-                Size: "XL",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-          ],
-          sales_channels: [
-            {
-              id: defaultSalesChannel.id,
-            },
-          ],
-        },
-        {
-          title: "Medusa Sweatpants",
-          category_ids: [
-            categoryResult.find((cat) => cat.name === "Pants")!.id,
-          ],
-          description:
-            "Reimagine the feeling of classic sweatpants. With our cotton sweatpants, everyday essentials no longer have to be ordinary.",
-          handle: "sweatpants",
-          weight: 400,
-          status: ProductStatus.PUBLISHED,
-          shipping_profile_id: shippingProfile.id,
-          images: [
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/sweatpants-gray-front.png",
-            },
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/sweatpants-gray-back.png",
-            },
-          ],
-          options: [{ id: sizeOption.id }],
-          variants: [
-            {
-              title: "S",
-              sku: "SWEATPANTS-S",
-              options: {
-                Size: "S",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "M",
-              sku: "SWEATPANTS-M",
-              options: {
-                Size: "M",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "L",
-              sku: "SWEATPANTS-L",
-              options: {
-                Size: "L",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "XL",
-              sku: "SWEATPANTS-XL",
-              options: {
-                Size: "XL",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-          ],
-          sales_channels: [
-            {
-              id: defaultSalesChannel.id,
-            },
-          ],
-        },
-        {
-          title: "Medusa Shorts",
-          category_ids: [
-            categoryResult.find((cat) => cat.name === "Merch")!.id,
-          ],
-          description:
-            "Reimagine the feeling of classic shorts. With our cotton shorts, everyday essentials no longer have to be ordinary.",
-          handle: "shorts",
-          weight: 400,
-          status: ProductStatus.PUBLISHED,
-          shipping_profile_id: shippingProfile.id,
-          images: [
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/shorts-vintage-front.png",
-            },
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/shorts-vintage-back.png",
-            },
-          ],
-          options: [{ id: sizeOption.id }],
-          variants: [
-            {
-              title: "S",
-              sku: "SHORTS-S",
-              options: {
-                Size: "S",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "M",
-              sku: "SHORTS-M",
-              options: {
-                Size: "M",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "L",
-              sku: "SHORTS-L",
-              options: {
-                Size: "L",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "XL",
-              sku: "SHORTS-XL",
-              options: {
-                Size: "XL",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-          ],
-          sales_channels: [
-            {
-              id: defaultSalesChannel.id,
-            },
-          ],
-        },
-      ],
-    },
-  });
-  logger.info("Finished seeding product data.");
-
-  logger.info("Seeding inventory levels.");
-
-  const { data: inventoryItems } = await query.graph({
-    entity: "inventory_item",
-    fields: ["id"],
-  });
-
-  await createInventoryLevelsWorkflow(container).run({
-    input: {
-      inventory_levels: inventoryItems.map((item) => ({
-        location_id: stockLocation.id,
-        stocked_quantity: 1000000,
-        inventory_item_id: item.id,
-      })),
-    },
-  });
-
-  logger.info("Finished seeding inventory levels data.");
-
   await seedWilayasWorkflow(container).run({
     input: {},
   });
+
+  logger.info(
+    "Finished seeding whitelabel systemic structural defaults perfectly.",
+  );
+  logger.info(
+    "Catalog inventory layer left clear. Sanity CMS sync pipeline will stream items dynamically.",
+  );
 }

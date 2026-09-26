@@ -16,10 +16,10 @@ env:
   DATABASE_URL: "postgres://postgres:postgres@localhost:5432/ci_test_db"
   JWT_SECRET: "super-secret-ci-jwt-token-string-32-chars-long"
   COOKIE_SECRET: "super-secret-ci-cookie-token-string-32-chars-long"
-  NEXT_PUBLIC_MEDUSA_BACKEND_URL: "http://localhost:9000"
+  NEXT_PUBLIC_MEDUSA_BACKEND_URL: "http://127.0.0.1:9000"
   NEXT_PUBLIC_SANITY_PROJECT_ID: "mockid12"
   NEXT_PUBLIC_SANITY_DATASET: "testdataset"
-  NEXT_PUBLIC_STRIPE_KEY: "pk_test_CI_MOCK_KEY_FOR_BUILD_PURPOSES" 
+  NEXT_PUBLIC_STRIPE_KEY: "pk_test_CI_MOCK_KEY_FOR_BUILD_PURPOSES"
 
 jobs:
   # JOB 1: Detect Changed Files (Path Filtering)
@@ -80,6 +80,14 @@ jobs:
       - name: Install Monorepo Dependencies
         run: npm ci
 
+      - name: Turbo Local Cache Engine (Storefront)
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-
+
       # Next.js Build Artifact Caching
       - name: Restore / Save Next.js Build Cache
         uses: actions/cache@v4
@@ -117,7 +125,7 @@ jobs:
         env:
           MEDUSA_ADMIN_DASHBOARD_DISABLED: "true"
         run: |
-          npm run build
+          npx turbo run build --filter=@dtc/backend
 
       # 2. RUN MEDUSA BACKEND TEMPORARILY WITH NEON SECRETS
       - name: Setup Medusa Database & Start Server
@@ -130,10 +138,11 @@ jobs:
           MEDUSA_ADMIN_DASHBOARD_DISABLED: "true"
           STRIPE_API_KEY: "sk_test_CI_MOCK_SECRET_KEY"
           STRIPE_WEBHOOK_SECRET: "whsec_CI_MOCK_WEBHOOK_SECRET"
+          LOG_LEVEL: error
         run: |
-          npx medusa db:migrate
+          npx turbo run db:migrate --filter=@dtc/backend
           npx medusa start > medusa-backend.log 2>&1 & sleep 10
-          npx wait-on http://localhost:9000/health --timeout 180000
+          npx wait-on http://127.0.0.1:9000/health --timeout 180000
 
       - name: Check Medusa Backend Logs (if previous step failed)
         if: failure()
@@ -144,14 +153,14 @@ jobs:
       - name: Run Storefront Integration Tests (via Turbo)
 
         env:
-          NEXT_PUBLIC_MEDUSA_BACKEND_URL: "http://localhost:9000"
+          NEXT_PUBLIC_MEDUSA_BACKEND_URL: "http://127.0.0.1:9000"
           NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY}}
         run: npx turbo run test:integration --filter=storefront
 
       - name: Production Build
         working-directory: ./apps/storefront
         env:
-          NEXT_PUBLIC_MEDUSA_BACKEND_URL: "http://localhost:9000"
+          NEXT_PUBLIC_MEDUSA_BACKEND_URL: "http://127.0.0.1:9000"
           NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: ${{secrets.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY}}
           NEXT_PUBLIC_SANITY_PROJECT_ID: ${{secrets.NEXT_PUBLIC_SANITY_PROJECT_ID}}
           NEXT_PUBLIC_SANITY_DATASET: ${{secrets.NEXT_PUBLIC_SANITY_DATASET}}
@@ -182,6 +191,14 @@ jobs:
       - name: Install Backend Dependencies
         run: npm ci
 
+      - name: Turbo Local Cache Engine (Storefront)
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-  
+
       - name: Typecheck
         working-directory: ./apps/backend
 
@@ -190,7 +207,7 @@ jobs:
       - name: Unit Tests (Vitest)
         working-directory: ./apps/backend
         env:
-          STRIPE_API_KEY: "sk_test_CI_MOCK_KEY" 
+          STRIPE_API_KEY: "sk_test_CI_MOCK_KEY"
           STRIPE_WEBHOOK_SECRET: "whsec_CI_MOCK_SECRET"
 
         run: npx turbo run test --filter=@dtc/backend
@@ -199,6 +216,44 @@ jobs:
         working-directory: ./apps/backend
 
         run: npx turbo run build --filter=@dtc/backend
+
+      - name: Run Sanity Synchronization E2E Integration Suite
+        working-directory: ./apps/backend
+        env:
+          DATABASE_URL: ${{ secrets.NEON_CI_DATABASE_URL }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          COOKIE_SECRET: ${{ secrets.COOKIE_SECRET }}
+          SANITY_SYNC_SECRET_TOKEN: ${{ secrets.CI_SYNC_TEST_READ_TOKEN}}
+          MEDUSA_ADMIN_DASHBOARD_DISABLED: "true"
+          NODE_ENV: test
+          STRIPE_API_KEY: "sk_test_CI_MOCK_KEY"
+          STRIPE_WEBHOOK_SECRET: "whsec_CI_MOCK_SECRET"
+          LOG_LEVEL: error
+        run: npm run ci:sync:e2e
+      - name: Output E2E Backend Logs on Failure
+        if: failure()
+        
+        run: |
+          echo "=== Sanity Sync Live E2E Server Log Streams ==="
+          cat ./apps/backend/medusa-backend.log || echo "No log file found"   
+
+      - name: Validate Whitelabel Database Seeding Contracts
+        working-directory: ./apps/backend
+        env:
+          DATABASE_URL: ${{ secrets.NEON_CI_DATABASE_URL}}
+          MEDUSA_ADMIN_DASHBOARD_DISABLED: "true"
+          ACTIVE_SHIPPING_PROVIDER: "manual_manual"
+          STORE_WAREHOUSE_COUNTRY: "DZ"
+          STORE_NAME: "CI Validation Instance"
+          STRIPE_API_KEY: "sk_test_CI_MOCK_KEY"
+          STRIPE_WEBHOOK_SECRET: "whsec_CI_MOCK_SECRET"
+          CHARGILY_SECRET_KEY: "test_sk_CI_MOCK_KEY"
+          CHARGILY_IS_TEST_MODE: "true"
+          JWT_SECRET: "super-secret-ci-jwt-token-string-32-chars-long"
+          COOKIE_SECRET: "super-secret-ci-cookie-token-string-32-chars-long"
+        run: |
+          npm run predeploy
 
   cms-ci:
     name: CMS (Sanity Studio) - Quality & Build
@@ -216,6 +271,14 @@ jobs:
           cache: "npm"
       - name: Install Dependencies
         run: npm ci
+
+      - name: Turbo Local Cache Engine (Storefront)
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-  
 
       - name: Typecheck & Validate Studio Schema
         working-directory: ./apps/cms

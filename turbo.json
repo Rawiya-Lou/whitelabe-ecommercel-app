@@ -6,7 +6,11 @@
     "REDIS_URL",
     "JWT_SECRET",
     "COOKIE_SECRET",
-    "AUTH_MFA_ENCRYPTION_KEY"
+    "AUTH_MFA_ENCRYPTION_KEY",
+    "SANITY_SYNC_SECRET_TOKEN",
+    "SANITY_API_READ_TOKEN",
+    "NEXT_PUBLIC_SANITY_PROJECT_ID",
+    "NEXT_PUBLIC_SANITY_DATASET"
   ],
   "tasks": {
     "build": {
@@ -33,6 +37,12 @@
     "seed": {
       "outputs": []
     },
+    "predeploy":{
+      "dependsOn": ["^build"],
+      "cache": false
+      
+
+    },
 
     "db:migrate": {
       "cache": false
@@ -43,6 +53,14 @@
     },
     "test:proxy": { 
       "cache": false
+    },
+    "test:sync:e2e": {
+      "cache": false
+    },
+    
+    "ci:sync:e2e": {
+        "cache": false
     }
+    
   }
 }

@@ -49,15 +49,21 @@ jobs:
         run: npm ci
 
       # We only need to run the migrations script via your workspace tool
-      - name: Run Medusa Migrations
+      - name: Run Medusa Migrations & Seed Initialization
         working-directory: ./apps/backend
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          MEDUSA_ADMIN_DASHBOARD_DISABLED: "true"
+          ACTIVE_SHIPPING_PROVIDER: "manual_manual"
+          STORE_WAREHOUSE_COUNTRY: "DZ"
+          STORE_NAME: "Production Instance"
           STRIPE_API_KEY: "sk_test_CI_MOCK_SECRET_KEY"
           STRIPE_WEBHOOK_SECRET: "whsec_CI_MOCK_WEBHOOK_SECRET"
+          CHARGILY_SECRET_KEY: "test_sk_mock_secret_key"
+          CHARGILY_IS_TEST_MODE: "true"
           
 
-        run: npm run build && npx medusa db:migrate
+        run: npm run build && npm run predeploy
 
   # 2. Trigger Render to pull, use build-backend.js, and host
   deploy-backend-render:
