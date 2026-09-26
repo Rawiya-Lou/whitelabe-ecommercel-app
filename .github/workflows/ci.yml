@@ -133,7 +133,7 @@ jobs:
         run: |
           npx medusa db:migrate
           npx medusa start > medusa-backend.log 2>&1 & sleep 10
-          npx wait-on http://127.0.0.1/health --timeout 60000
+          npx wait-on http://127.0.0.1:9000/health --timeout 180000
 
       - name: Check Medusa Backend Logs (if previous step failed)
         if: failure()
