@@ -25,10 +25,12 @@ type DocumentType = "product" | "category";
 export interface SanityRawWebhookImage {
   _type: "image";
   asset: SanityRawWebhookReference;
-  alt?: string;
+  alt_en?: string;
+  alt_fr?: string;
+  alt_ar?: string;
 }
 
-const DEFAULT_FALLBACK = "https://domain.com";
+const DEFAULT_FALLBACK = process.env.BACKEND_URL || "http://localhost:9000";
 const activeSyncQueues = new Map<string, Promise<void>>();
 
 const getSanityCdnUrl = (
@@ -37,9 +39,19 @@ const getSanityCdnUrl = (
   dataset: string,
   fallbackUrl: string,
 ): string => {
-  if (!refId) return fallbackUrl;
-  const [, id, dimensions, extension] = refId.split("-");
+  if (!refId) return fallbackUrl
+  try {
+  const cleanRef = refId.replace(/^image-/, "");
+  const parts = cleanRef.split("-");
+
+  if(parts.length < 3) return fallbackUrl; 
+  
+  const [ id, dimensions, extension] = parts;
   return `https://sanity.io/${projectId}/${dataset}/${id}-${dimensions}.${extension}`;
+  } catch(e) {
+    return fallbackUrl
+
+  }
 };
 
 export async function POST(
@@ -259,12 +271,14 @@ export async function POST(
         details:
           "Validation failure: Payload variables (prices, stock counts, handle slugs) violate system integrity constraints.",
       });
+      if (req._releaseSyncLock) req._releaseSyncLock();
       return;
     }
 
     logger.info(
       `[Sanity Sync Hook] Ingesting operation: [${operation}] for Content Type [${documentType}] ID [${cmsProduct._id}]`,
     );
+
 
     const mappedImages: SanityImagePayload[] =
       (cmsProduct.images as SanityRawWebhookImage[] | undefined)?.map(
@@ -277,7 +291,12 @@ export async function POST(
                 imgFallbackUrl,
               )
             : imgFallbackUrl,
-          altText: img.alt || "Product catalog element",
+            altText:JSON.stringify({
+              en: img.alt_en || "Product catalog element",
+              fr: img.alt_fr || "",
+              ar: img.alt_ar || "",
+
+            })
         }),
       ) || [];
 

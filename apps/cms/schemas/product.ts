@@ -1,4 +1,3 @@
-// apps/cms/schemaTypes/product.ts
 import { defineType, defineField } from "sanity";
 import { BasketIcon } from "@sanity/icons/Basket"; // Visual anchor for the studio sidebar
 
@@ -8,12 +7,22 @@ export const product = defineType({
   type: "document",
   icon: BasketIcon,
   fields: [
+
     defineField({
       name: "title",
       title: "Product Title",
       type: "localizedString", 
       validation: (Rule) => Rule.required(),
     }),
+
+      defineField({
+      name: "medusaId",
+      title: "Medusa Product ID Mapping Reference",
+      type: "string",
+      description: "The primary key ID linking this document to the core Medusa database record.",
+      validation: (Rule) => Rule.required(),
+    }),
+
     defineField({
       name: "slug",
       title: "Unique Handle / Slug",
@@ -65,5 +74,39 @@ export const product = defineType({
       type: "array",
       of: [{ type: "reference", to: [{ type: "category" }] }],
     }),
+    defineField({
+      name: "images",
+      title: "Product Images",
+      type: "array",
+      description: "Upload product files",
+      of: [
+        {
+          type:"image",
+          options: {
+            hotspot: true,
+          },
+          fields: [
+            {
+              name: "alt_en",
+              type: "string",
+              title: "Alternative Text Description (SEO & Accessibility)",
+              validation: (Rule) => Rule.required()
+            },
+            {
+              name: "alt_fr",
+              type: "string",
+              title: "Alt Text (French)",
+            },
+            {
+              name: "alt_ar",
+              type: "string",
+              title: "Alt Text (Arabic)",
+            },
+          ]
+
+        }
+
+      ]
+    })
   ],
 });

@@ -31,6 +31,24 @@ const config = defineConfig({
 
   modules: [
     {
+      resolve: "@medusajs/medusa/file",
+      options: {
+        providers: [
+          {
+            resolve: "@medusajs/medusa/file-local",
+            id: "local",
+            options: {
+              // Points directly to your static folder root inside apps/backend
+              upload_dir: "static", 
+              backend_url: process.env.BACKEND_URL 
+                ? `${process.env.BACKEND_URL}/static` 
+                : "http://localhost:9000/static",
+            },
+          }
+        ]
+      }
+    },
+    {
       resolve: "@medusajs/medusa/payment",
       options: {
         providers: [

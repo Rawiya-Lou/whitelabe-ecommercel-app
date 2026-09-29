@@ -17,17 +17,31 @@ export function mapSanityToMedusaProduct(
   ];
 
   // Resolves asset elements cleanly using fallback defaults
-  // TO_DO: Change the image Urlto the domain fallback Url
+ const baseUrl = process.env.BACKEND_URL || "http://localhost:9000";
+ const brandedPlaceholder = process.env.SANITY_IMAGE_FALLBACK_URL || `${baseUrl}/static/placeholder.png`;
   const resolvedImages = product.images && product.images.length > 0
-    ? product.images.map((img) => ({ url: img.url || "https://unsplash.com" }))
-    : [{ url: "https://unsplash.com" }];
+    ? product.images.map((img) => ({
+       url: img.url || brandedPlaceholder,
+       alt: img.altText || "Product image" 
+      }))
+    : [{ url: brandedPlaceholder,  alt: { alt: "Placeholder image" } }];
 
   const primaryThumbnail = resolvedImages[0].url;
-    const metadata: Record<string, string> = {};
+    const metadata: Record<string, string> = {
+      sanity_id: product._id || ""
+    };
   if (product.title && typeof product.title === 'object') {
     Object.entries(product.title).forEach(([lang, val]) => {
       if(val)
       metadata[`title_${lang}`] = String(val).trim();
+    });
+  }
+
+  if (product.description && typeof product.description === 'object') {
+    Object.entries(product.description).forEach(([lang, val]) => {
+      if (val) {
+        metadata[`description_${lang}`] = String(val).trim();
+      }
     });
   }
 

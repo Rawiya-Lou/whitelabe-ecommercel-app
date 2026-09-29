@@ -2,7 +2,7 @@ name: CI & Quality Control
 
 on:
   push:
-    branches: [main, feature/*, develop]
+    branches: [main, feature/*, test/*, develop]
   pull_request:
     branches: [main, master]
 
