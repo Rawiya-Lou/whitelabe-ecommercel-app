@@ -9,6 +9,7 @@ const mockWebhookPayload = {
   documentType: "product",
   productData: {
     _id: "test-prod-compiled-999",
+    meudsaId: "prod_01J7K8M9N1P2Q3R4S5T6V7W8X9",
     title: {
       en: "Compiled Heavy Duty Work Desk (Enterprise Edition v3)",
       fr: "Bureau lourd compilé Pro",
@@ -26,8 +27,33 @@ const mockWebhookPayload = {
     widthMm: 800,
     heightMm: 750,
     originCountry: "DZ",
-    categories: [],
-    images: [],
+    categories: [
+       {
+        _id: "cat-office-furniture-001",
+        title: {
+          en: "Office Furniture",
+          ar: "أثاث المكاتب"
+        },
+        slug: "office-furniture"
+      },
+       {
+        _id: "cat-workspace-heavy-002",
+        title: {
+          en: "Heavy Duty Equipment"
+        },
+        slug: "heavy-duty-equipment"
+      }
+    ],
+    images: [
+      {
+        _key: "asset-key-primary-studio-desk",
+        url: "https://unsplash.com"
+      },
+       {
+        _key: "asset-key-angle-two-studio-desk",
+        url: "https://unsplash.com"
+      }
+    ],
     manage_inventory: true,
     allow_backorder: false,
   },

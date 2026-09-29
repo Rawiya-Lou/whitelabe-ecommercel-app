@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --cache --cache-location .next/cache/eslint/",
     "lint:fix": "eslint . --fix",
-    "test": "vitest run",
+    "test": "vitest run --project=unit",
     "test:watch": "vitest run",
     "test:unit:watch": "vitest run --project=unit --watch",
     "test:integration": "vitest run --project=integration",
