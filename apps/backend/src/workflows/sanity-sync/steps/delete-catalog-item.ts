@@ -67,6 +67,7 @@ export const deleteCatalogItemStep = createStep(
           deleted: false,
           error: "relational_constraint"
         })
+        
       }
 
       // Complete structural category deletion safely

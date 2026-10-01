@@ -1,6 +1,8 @@
 import { loadEnv, defineConfig } from "@medusajs/framework/utils";
 
 loadEnv(process.env.NODE_ENV || "development", process.cwd());
+// If running locally, prefix with "dev_". If live, prefix with "prod_"
+const redisNamespacePrefix = process.env.NODE_ENV === "production" ? "prod_" : "dev_";
 
 const config = defineConfig({
   projectConfig: {
@@ -21,15 +23,25 @@ const config = defineConfig({
       secure: false,
     },
     http: {
-      storeCors: process.env.STORE_CORS!,
-      adminCors: process.env.ADMIN_CORS!,
-      authCors: process.env.AUTH_CORS!,
+      storeCors: process.env.STORE_CORS || "/.*/",
+      adminCors: process.env.ADMIN_CORS || "/.*/",
+      authCors: process.env.AUTH_CORS || "/.*/",
       jwtSecret: process.env.JWT_SECRET,
       cookieSecret: process.env.COOKIE_SECRET,
     },
   },
 
   modules: [
+     {
+      resolve: "@medusajs/medusa/event-bus-redis",
+      options: {
+        redisUrl: process.env.REDIS_URL,
+        // PROTECTS PRODUCTION BACKGROUND QUEUES FROM LOCAL CONFLICTS
+        queueOptions: {
+          prefix: redisNamespacePrefix,
+        }
+      },
+    },
     {
       resolve: "@medusajs/medusa/file",
       options: {

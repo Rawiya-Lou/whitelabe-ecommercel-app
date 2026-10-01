@@ -74,9 +74,18 @@ export class SanityMedusaSyncService {
               config.salesChannelId,
             );
 
+             const cleanImagesArray = Array.isArray(medusaPayload.images)
+              ? medusaPayload.images.map((img: any) => ({
+                  url: img.url
+                }))
+              : [];
+
             // Persist Product Registry via Core Engine
-            const createdProducts = await productModuleService.createProducts([
-              medusaPayload,
+            const createdProducts = await productModuleService.createProducts([{
+               ...medusaPayload,
+               thumbnail: medusaPayload.thumbnail || cleanImagesArray[0]?.url || undefined,
+               images: cleanImagesArray,
+              }
             ]);
             const targetProduct = createdProducts?.[0];
 

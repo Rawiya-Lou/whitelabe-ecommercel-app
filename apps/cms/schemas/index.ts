@@ -72,7 +72,7 @@ export const category = defineType({
       options: { source: "title.en", maxLength: 96 }, 
       validation: (Rule) => Rule.required() 
     }),
-    // 🖼️ CATEGORY HERO IMAGE
+    // CATEGORY HERO IMAGE
     defineField({
       name: "image",
       title: "Category Banner / Thumbnail",
@@ -113,7 +113,7 @@ export const product = defineType({
     }),
     defineField({ name: "description", title: "Product Description", type: "localizedText" }),
     
-    // 🖼️ PRODUCTION IMAGE GALLERY ARRAY WITH ALT META DESCRIPTIONS
+    // PRODUCTION IMAGE GALLERY ARRAY WITH ALT META DESCRIPTIONS
     defineField({
       name: "images",
       title: "Product Media Gallery",
@@ -135,7 +135,7 @@ export const product = defineType({
       ]
     }),
 
-    // 💳 INTERNATIONAL PAYMENT METRICS (Separated by Region currency keys)
+    // INTERNATIONAL PAYMENT METRICS (Separated by Region currency keys)
     defineField({
       name: "pricing",
       title: "Regional Pricing Configuration",
@@ -165,7 +165,7 @@ export const product = defineType({
 
     defineField({ name: "stockCount", title: "Available Warehouse Inventory Quantity", type: "number", validation: (Rule) => Rule.required().min(0) }),
     
-    // 📏 PHYSICAL SHIPPING METRICS (Required for accurate delivery service pricing engines)
+    // PHYSICAL SHIPPING METRICS (Required for accurate delivery service pricing engines)
     defineField({ name: "weightGrams", title: "Product Weight (Grams)", type: "number", validation: (Rule) => Rule.min(0) }),
     defineField({ name: "lengthMm", title: "Product Length (Millimeters)", type: "number", validation: (Rule) => Rule.min(0) }),
     defineField({ name: "widthMm", title: "Product Width (Millimeters)", type: "number", validation: (Rule) => Rule.min(0) }),

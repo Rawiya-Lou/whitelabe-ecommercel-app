@@ -15,14 +15,6 @@ export const product = defineType({
       validation: (Rule) => Rule.required(),
     }),
 
-      defineField({
-      name: "medusaId",
-      title: "Medusa Product ID Mapping Reference",
-      type: "string",
-      description: "The primary key ID linking this document to the core Medusa database record.",
-      validation: (Rule) => Rule.required(),
-    }),
-
     defineField({
       name: "slug",
       title: "Unique Handle / Slug",

@@ -17,8 +17,8 @@ export function mapSanityToMedusaProduct(
   ];
 
   // Resolves asset elements cleanly using fallback defaults
- const baseUrl = process.env.BACKEND_URL || "http://localhost:9000";
- const brandedPlaceholder = process.env.SANITY_IMAGE_FALLBACK_URL || `${baseUrl}/static/placeholder.png`;
+ const BASE_URL = process.env.BACKEND_URL || "http://localhost:9000";
+ const brandedPlaceholder = process.env.SANITY_IMAGE_FALLBACK_URL || `${BASE_URL}/static/placeholder.png`;
   const resolvedImages = product.images && product.images.length > 0
     ? product.images.map((img) => ({
        url: img.url || brandedPlaceholder,

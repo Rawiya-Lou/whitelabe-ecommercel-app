@@ -30,7 +30,8 @@ export interface SanityRawWebhookImage {
   alt_ar?: string;
 }
 
-const DEFAULT_FALLBACK = process.env.BACKEND_URL || "http://localhost:9000";
+const BASE_URL = process.env.BACKEND_URL
+const DEFAULT_FALLBACK =  process.env.SANITY_IMAGE_FALLBACK_URL || `${BASE_URL}/static/placeholder.png`;
 const activeSyncQueues = new Map<string, Promise<void>>();
 
 const getSanityCdnUrl = (
@@ -47,7 +48,7 @@ const getSanityCdnUrl = (
   if(parts.length < 3) return fallbackUrl; 
   
   const [ id, dimensions, extension] = parts;
-  return `https://sanity.io/${projectId}/${dataset}/${id}-${dimensions}.${extension}`;
+  return `https://cdn.sanity.io/images/${projectId}/${dataset}/${id}-${dimensions}.${extension}`;
   } catch(e) {
     return fallbackUrl
 
@@ -66,9 +67,7 @@ export async function POST(
 
   const dataset = process.env.SANITY_DATASET || "production";
 
-  const imgFallbackUrl =
-    process.env.SANITY_IMAGE_FALLBACK_URL || DEFAULT_FALLBACK;
-
+  const imgFallbackUrl = DEFAULT_FALLBACK;
   const localBypassSecret = "development-test-override-token";
 
   const isValidToken =
@@ -141,13 +140,13 @@ export async function POST(
     }
 
     if (operation === "delete") {
+      const rawDeleteSlug = rawPayload.productData?.slug || rawPayload.slug;
       const extractedSlug: string = (
-        rawPayload.productData?.slug ||
-        rawPayload.slug ||
-        ""
-      )
-        .toLowerCase()
-        .trim();
+        typeof rawDeleteSlug === "object" && rawDeleteSlug !== null
+          ? (rawDeleteSlug as Record<string, string>).current
+          : rawDeleteSlug || ""
+      ).toLowerCase().trim();
+        
 
       if (documentType === "category" && extractedSlug !== "") {
         const query = req.scope.resolve(ContainerRegistrationKeys.QUERY);
@@ -253,31 +252,39 @@ export async function POST(
     const eurPrice = cmsProduct.pricing?.eur ?? cmsProduct.basePriceEur ?? 0;
     const usdPrice = cmsProduct.pricing?.usd ?? cmsProduct.basePriceUsd ?? 0;
     const stockCount = cmsProduct.stockCount ?? 0;
-    const slugValue = cmsProduct.slug || "";
 
+    const normalizedSlug: string = (
+      typeof cmsProduct.slug === "object" && cmsProduct.slug !== null
+        ? (cmsProduct.slug as Record<string, string>).current
+        : cmsProduct.slug || ""
+    ).toLowerCase().trim();
     if (
       dzdPrice < 0 ||
       eurPrice < 0 ||
       usdPrice < 0 ||
       stockCount < 0 ||
-      slugValue === ""
+      normalizedSlug === ""
     ) {
       logger.warn(
         `[Sanity Sync Hook] Fault Ingestion blocked: Malformed payload attributes detected.`,
       );
-      res.status(500).json({
+        if (req._releaseSyncLock) req._releaseSyncLock();
+
+      res.status(400).json({
         success: false,
         error: "Core sync handling process crashed.",
         details:
           "Validation failure: Payload variables (prices, stock counts, handle slugs) violate system integrity constraints.",
       });
-      if (req._releaseSyncLock) req._releaseSyncLock();
+    
       return;
     }
 
     logger.info(
       `[Sanity Sync Hook] Ingesting operation: [${operation}] for Content Type [${documentType}] ID [${cmsProduct._id}]`,
     );
+
+    
 
 
     const mappedImages: SanityImagePayload[] =
@@ -310,17 +317,13 @@ export async function POST(
         return { _id: safeId, slug: safeId, title: "Category Reference" };
       }) || [];
 
-    // Safely pull handle slugs whether it's passed as an object or a plain string
-    const extractedSlug =
-      typeof cmsProduct.slug === "object" && cmsProduct.slug !== null
-        ? (cmsProduct.slug as Record<string, string>).current
-        : cmsProduct.slug;
+   
 
     const standardizedProductData: SanityProductPayload = {
       _id: cmsProduct._id,
       title: cmsProduct.title || { en: "Untitled Product" },
       description: cmsProduct.description || { en: "" },
-      slug: extractedSlug || `prod-${cmsProduct._id}`,
+      slug: normalizedSlug || `prod-${cmsProduct._id}`,
 
       basePriceDzd: cmsProduct.pricing?.dzd ?? cmsProduct.basePriceDzd ?? 0,
       basePriceEur: cmsProduct.pricing?.eur ?? cmsProduct.basePriceEur ?? 0,

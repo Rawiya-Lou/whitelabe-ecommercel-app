@@ -7,7 +7,7 @@ import { localizedString, localizedText } from "./schemas/localizedObjects";
 import { category } from "./schemas/category";
 import { product } from "./schemas/product";
 const projectId = process.env.SANITY_STUDIO_PROJECT_ID || "4vzx52ot";
-const dataset = process.env.SANITY_STUDIO_DATASET || "production";
+const dataset = process.env.SANITY_STUDIO_DATASET || "development";
 export default defineConfig({
   name: "default",
   title: "DTC E-Commerce Studio",
