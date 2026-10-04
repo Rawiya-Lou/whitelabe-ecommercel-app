@@ -20,6 +20,8 @@ import { deleteCatalogItemStep } from "./steps/delete-catalog-item";
 import { mapSanityToMedusaProduct } from "./utils/mappers";
 import "./hooks/before-product-delete";
 import "./hooks/before-category-delete";
+import "./hooks/on-product-mutation";
+import "./hooks/on-category-mutation";
 
 export const sanitySyncProductWorkflow = createWorkflow(
   "sanity-sync-product",

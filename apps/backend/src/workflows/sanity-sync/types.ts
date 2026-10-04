@@ -58,12 +58,13 @@ export interface SanityProductPayload {
   heightMm?: number;
   originCountry?: string;
   stockCount: number;
+  metadata: Record<string, string> & { sanity_id: string; is_sync_origin: "sanity" };
   categories: SanityCategoryPayload[];
   manage_inventory?: boolean;
   allow_backorder?: boolean;
 }
 
-export interface SanityRawProductInput extends Omit<
+export interface SanityRawProductInput extends Omit<  
   Partial<SanityProductPayload>,
   "images" | "categories" | "slug"
 > {

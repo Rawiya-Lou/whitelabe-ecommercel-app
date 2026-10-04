@@ -304,8 +304,14 @@ export async function POST(
       return;
     }
 
+    
+
     const cmsProduct: Partial<SanityRawProductInput> = cleanId
-      ? { ...incomingCmsProduct, _id: cleanId }
+      ? { ...incomingCmsProduct, _id: cleanId, metadata: {
+        ...(incomingCmsProduct.metadata as Record<string, unknown> || {}),
+        sanity_id: cleanId,
+      is_sync_origin: "sanity"
+      } }
       : incomingCmsProduct;
     const targetLockKey = cmsProduct._id
       ? `${documentType}-${cmsProduct._id}`
@@ -435,6 +441,7 @@ export async function POST(
             basePriceUsd: 0,
             stockCount: 0,
             categories: [],
+            metadata: { sanity_id: sanityDocId, is_sync_origin: "sanity" },
           },
         };
         logger.info(
@@ -559,7 +566,8 @@ export async function POST(
           basePriceUsd: 0,
           stockCount: 0,
           categories: [],
-        },
+          metadata: { sanity_id: targetProduct.id, is_sync_origin: "sanity" },
+        },  
       };
 
       logger.info(
@@ -600,7 +608,7 @@ export async function POST(
               entity: "product_category",
               fields: ["id", "handle"],
               filters: {
-                metadata: { sanity_id: candidateId },
+                metadata: { sanity_id: candidateId, is_sync_origin: "sanity" },
               } as Record<string, unknown>,
             });
             matchedCategory = matchedCategories?.[0];
@@ -641,7 +649,7 @@ export async function POST(
                   {
                     name: sanityCategory.title,
                     is_active: true,
-                    metadata: { sanity_id: sanityCategory.id },
+                    metadata: { sanity_id: sanityCategory.id, is_sync_origin: "sanity" },
                   },
                 );
                 matchedCategory = existingCategory;
@@ -652,7 +660,7 @@ export async function POST(
                       name: sanityCategory.title,
                       handle: sanityCategory.handle.toLowerCase().trim(),
                       is_active: true,
-                      metadata: { sanity_id: sanityCategory.id },
+                      metadata: { sanity_id: sanityCategory.id, is_sync_origin: "sanity" },
                     },
                   ]);
                 const createdCategory = createdCategories[0];
@@ -771,6 +779,11 @@ export async function POST(
       basePriceDzd: dzdPrice,
       basePriceEur: eurPrice,
       basePriceUsd: usdPrice,
+      metadata: {
+        ...(cmsProduct.metadata as Record<string, unknown> || {}),
+        sanity_id: cmsProduct._id,
+        is_sync_origin: "sanity",
+      },
 
       stockCount: cmsProduct.stockCount ?? 0,
       weightGrams: cmsProduct.weightGrams,
