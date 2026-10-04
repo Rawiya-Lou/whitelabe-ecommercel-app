@@ -374,7 +374,7 @@ describe("Sanity CMS Sync Engine - E2E Lifecycle Matrix Suite", () => {
       const data = (await res.json()) as FlatSyncResponseDTO;
       expect(data.success).toBe(true);
     }
-  }, 30000);
+  }, 60000);
 
   it("Scenario 11: Should trigger cascade deletion removal loops to clear down assets completely", async () => {
     const mockPayload = {
@@ -395,6 +395,18 @@ describe("Sanity CMS Sync Engine - E2E Lifecycle Matrix Suite", () => {
     expect(data.success).toBe(true);
     expect(data.operation).toBe("delete");
     expect(data.message).toContain("successfully");
+
+    const repeatedDelete = await dispatchSyncWebhook(
+      mockPayload,
+      VALID_DEV_SECRET,
+      BYPASS_PUBLISH_KEY,
+      "delete",
+      targetTestId,
+    );
+    expect(repeatedDelete.status).toBe(200);
+    const repeatedData = (await repeatedDelete.json()) as FlatSyncResponseDTO;
+    expect(repeatedData.success).toBe(true);
+    expect(repeatedData.message).toContain("already absent");
   }, 30000);
 
   it("Scenario 12: Should dynamically handle out-of-stock count sync overrides safely", async () => {

@@ -8,7 +8,6 @@ import {
   createProductsWorkflow,
   updateProductsWorkflow,
 } from "@medusajs/medusa/core-flows";
-
 import { SanitySyncWorkflowInput, SyncWorkflowResult } from "./types";
 
 import { getSystemDefaultsStep } from "./steps/system-defaults";
@@ -19,6 +18,7 @@ import { createFreshInventoryStep } from "./steps/create-fresh-inventory";
 import { batchSyncStep } from "./steps/batch-sync-step";
 import { deleteCatalogItemStep } from "./steps/delete-catalog-item";
 import { mapSanityToMedusaProduct } from "./utils/mappers";
+import "./hooks/before-product-delete";
 
 export const sanitySyncProductWorkflow = createWorkflow(
   "sanity-sync-product",

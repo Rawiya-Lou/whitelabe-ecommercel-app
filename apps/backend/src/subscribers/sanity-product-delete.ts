@@ -1,17 +1,10 @@
 import type { SubscriberArgs, SubscriberConfig } from "@medusajs/framework";
-import {
-  ContainerRegistrationKeys,
-  MedusaError,
-  Modules,
-} from "@medusajs/framework/utils";
-import type { IProductModuleService, Logger } from "@medusajs/framework/types";
+import { ContainerRegistrationKeys } from "@medusajs/framework/utils";
+import type { Logger } from "@medusajs/framework/types";
+import { deleteSanityDocument } from "../utils/sanity-document-delete";
 
 interface ProductDeletedEvent {
-  id: string;
-}
-
-interface SanityMutationResponse {
-  error?: { description?: string; message?: string };
+  ids: string[];
 }
 
 export default async function syncDeletedProductToSanity({
@@ -19,87 +12,73 @@ export default async function syncDeletedProductToSanity({
   container,
 }: SubscriberArgs<ProductDeletedEvent>): Promise<void> {
   const logger = container.resolve(ContainerRegistrationKeys.LOGGER) as Logger;
-  const sanityToken = process.env.SANITY_API_TOKEN;
-  const projectId =
-    process.env.SANITY_STUDIO_PROJECT_ID ||
-    "4vzx52ot";
-  const dataset =
-    process.env.SANITY_STUDIO_DATASET ||
-    "development";
 
-  if (!sanityToken || !projectId || !dataset) {
+  const query = container.resolve(ContainerRegistrationKeys.QUERY);
+
+  const targetIds = data?.ids;
+
+  if (!targetIds || !Array.isArray(targetIds) || targetIds.length === 0) {
     logger.warn(
-      "[Sanity Delete Sync] Skipping outbound deletion: SANITY_API_TOKEN, SANITY_PROJECT_ID, and SANITY_DATASET must be configured.",
+      "[Sanity Delete Sync] Received product.deleted event, but no valid target IDs were provided in the payload.",
     );
     return;
   }
 
-  const productService = container.resolve(
-    Modules.PRODUCT,
-  ) as IProductModuleService;
-  let sanityId: string | undefined;
+  logger.info(
+    `[Sanity Delete Sync] Processing outbound deletion sequence for Medusa IDs: ${JSON.stringify(targetIds)}`,
+  );
 
-  try {
-    const deletedProduct = await productService.retrieveProduct(data.id, {
-      select: ["id", "metadata"],
-      withDeleted: true,
-    });
-    const metadata = deletedProduct.metadata;
-    if (metadata && typeof metadata.sanity_id === "string") {
-      sanityId = metadata.sanity_id;
-    }
-  } catch (error: unknown) {
-    logger.warn(
-      `[Sanity Delete Sync] Could not read Sanity mapping for deleted Medusa product [${data.id}]: ${error instanceof Error ? error.message : String(error)}`,
-    );
-    return;
-  }
+  for (const medusaId of targetIds) {
+    let sanityId: string | undefined;
 
-  if (!sanityId) {
-    logger.info(
-      `[Sanity Delete Sync] Medusa product [${data.id}] has no Sanity document mapping; skipping outbound delete.`,
-    );
-    return;
-  }
+    try {
+      // Query the database graph using 'withDeleted: true' context to scan historically soft-deleted rows
+      const { data: products } = await query.graph({
+        entity: "product",
+        fields: ["id", "metadata"],
+        filters: { id: medusaId },
+        withDeleted: true,
+      });
 
-  const cleanSanityId = sanityId.startsWith("drafts.")
-    ? sanityId.slice("drafts.".length)
-    : sanityId;
-  const mutationUrl = `https://${projectId}.api.sanity.io/v2021-06-07/data/mutate/${encodeURIComponent(dataset)}`;
+      // Safely ensure data returned records before destructuring array items
+      const softDeletedProduct =
+        products && products.length > 0 ? products[0] : null;
 
-  try {
-    const response = await fetch(mutationUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${sanityToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        mutations: [
-          { delete: { id: cleanSanityId } },
-          { delete: { id: `drafts.${cleanSanityId}` } },
-        ],
-      }),
-    });
-
-    if (!response.ok) {
-      const responseBody = (await response.json()) as SanityMutationResponse;
-      throw new MedusaError(
-        MedusaError.Types.INVALID_DATA,
-        responseBody.error?.description ||
-          responseBody.error?.message ||
-          `Sanity mutation failed with HTTP ${response.status}.`,
+      if (!softDeletedProduct) {
+        logger.warn(
+          `[Sanity Delete Sync] Medusa entity metadata mapping row [${medusaId}] was completely missing from database indexes.`,
+        );
+        continue;
+      }
+      const metadata = softDeletedProduct.metadata;
+      if (metadata && typeof metadata.sanity_id === "string") {
+        sanityId = metadata.sanity_id;
+      }
+    } catch (error: unknown) {
+      logger.warn(
+        `[Sanity Delete Sync] Could not read Sanity mapping for deleted Medusa product [${medusaId}]: ${error instanceof Error ? error.message : String(error)}`,
       );
+      continue;
     }
 
-    logger.info(
-      `[Sanity Delete Sync] Deleted Sanity document [${cleanSanityId}] after Medusa product deletion [${data.id}].`,
-    );
-  } catch (error: unknown) {
-    logger.error(
-      `[Sanity Delete Sync] Failed to delete Sanity document [${cleanSanityId}]: ${error instanceof Error ? error.message : String(error)}`,
-    );
-    throw error;
+    if (!sanityId) {
+      logger.info(
+        `[Sanity Delete Sync] Medusa product [${medusaId}] has no Sanity document mapping; skipping outbound delete.`,
+      );
+      continue;
+    }
+    try {
+      await deleteSanityDocument({
+        documentId: sanityId,
+        logger,
+        context: `Medusa product deletion [${medusaId}]`,
+      });
+    } catch (error: unknown) {
+      logger.error(
+        `[Sanity Delete Sync] Could not synchronize deleted product [${medusaId}] to Sanity: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      throw error;
+    }
   }
 }
 
