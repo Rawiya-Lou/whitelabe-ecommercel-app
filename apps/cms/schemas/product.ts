@@ -7,11 +7,10 @@ export const product = defineType({
   type: "document",
   icon: BasketIcon,
   fields: [
-
     defineField({
       name: "title",
       title: "Product Title",
-      type: "localizedString", 
+      type: "localizedString",
       validation: (Rule) => Rule.required(),
     }),
 
@@ -31,22 +30,29 @@ export const product = defineType({
       type: "localizedText", // Localized text object translation area
     }),
     defineField({
-      name: "basePriceDzd",
-      title: "Price in Algeria (DZD DA)",
-      type: "number",
-      validation: (Rule) => Rule.required().min(0),
-    }),
-    defineField({
-      name: "basePriceEur",
-      title: "Price in Europe (EUR €)",
-      type: "number",
-      validation: (Rule) => Rule.required().min(0),
-    }),
-    defineField({
-      name: "basePriceUsd",
-      title: "Price in North America (USD $)",
-      type: "number",
-      validation: (Rule) => Rule.required().min(0),
+      name: "pricing",
+      title: "Regional Pricing Configuration",
+      type: "object",
+      fields: [
+        defineField({
+          name: "dzd",
+          title: "Price in Algeria (DZD)",
+          type: "number",
+          validation: (Rule) => Rule.required().min(0).precision(2),
+        }),
+        defineField({
+          name: "eur",
+          title: "Price in Europe (EUR)",
+          type: "number",
+          validation: (Rule) => Rule.required().min(0).precision(2),
+        }),
+        defineField({
+          name: "usd",
+          title: "Price in North America (USD)",
+          type: "number",
+          validation: (Rule) => Rule.required().min(0).precision(2),
+        }),
+      ],
     }),
     defineField({
       name: "stockCount",
@@ -62,8 +68,12 @@ export const product = defineType({
     }),
     defineField({
       name: "categories",
-      title: "Associated Categories",
+      title: "product Categories",
       type: "array",
+      validation: (Rule) =>
+        Rule.required()
+          .min(1)
+          .error("Every product must belong to a valid category."),
       of: [{ type: "reference", to: [{ type: "category" }] }],
     }),
     defineField({
@@ -73,7 +83,7 @@ export const product = defineType({
       description: "Upload product files",
       of: [
         {
-          type:"image",
+          type: "image",
           options: {
             hotspot: true,
           },
@@ -82,23 +92,23 @@ export const product = defineType({
               name: "alt_en",
               type: "string",
               title: "Alternative Text Description (SEO & Accessibility)",
-              validation: (Rule) => Rule.required()
+              validation: (Rule) => Rule.required(),
             },
             {
               name: "alt_fr",
               type: "string",
               title: "Alt Text (French)",
+              validation: (Rule) => Rule.max(500),
             },
             {
               name: "alt_ar",
               type: "string",
               title: "Alt Text (Arabic)",
+              validation: (Rule) => Rule.max(500),
             },
-          ]
-
-        }
-
-      ]
-    })
+          ],
+        },
+      ],
+    }),
   ],
 });

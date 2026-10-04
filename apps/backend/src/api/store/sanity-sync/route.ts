@@ -6,32 +6,186 @@ import {
   SanitySyncWorkflowInput,
   SanityProductPayload,
   SanityImagePayload,
-  SanityCategoryPayload,
   SanityRawProductInput,
+  SanityRawImageInput,
 } from "../../../workflows/sanity-sync/types";
 
 export interface SanityRawWebhookReference {
   _key?: string;
-  _ref: string;
+  _ref?: string;
+  _id?: string;
   _type: "reference";
 }
-interface AuthenticatedSyncRequest extends MedusaRequest<any> {
+interface SanitySyncWebhookPayload extends Partial<SanityRawProductInput> {
+  operation?: string;
+  _action?: string;
+  action?: string;
+  eventType?: string;
+  _operation?: string;
+  _deleted?: boolean;
+  deleted?: boolean;
+  documentType?: string;
+  _type?: string;
+  documentIds?: unknown;
+  productData?: SanityRawProductInput;
+}
+
+interface AuthenticatedSyncRequest extends MedusaRequest<SanitySyncWebhookPayload> {
   _releaseSyncLock?: () => void;
 }
 
 type OperationTypes = "update" | "create" | "batch" | "delete";
 type DocumentType = "product" | "category";
 
-export interface SanityRawWebhookImage {
-  _type: "image";
-  asset: SanityRawWebhookReference;
-  alt_en?: string;
-  alt_fr?: string;
-  alt_ar?: string;
+export type SanityRawWebhookImage = SanityRawImageInput;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const getString = (value: unknown): string | undefined =>
+  typeof value === "string" ? value : undefined;
+
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value);
+
+const getWebhookOperation = (
+  payload: SanitySyncWebhookPayload,
+  sanityOperationHeader?: string,
+): OperationTypes => {
+  if (
+    sanityOperationHeader === "create" ||
+    sanityOperationHeader === "update" ||
+    sanityOperationHeader === "delete"
+  ) {
+    return sanityOperationHeader;
+  }
+
+  if (
+    payload._deleted === true ||
+    payload.deleted === true ||
+    [
+      payload._action,
+      payload.action,
+      payload.eventType,
+      payload._operation,
+    ].some((value) => value?.toLowerCase() === "delete")
+  ) {
+    return "delete";
+  }
+
+  const explicitAction =
+    payload._action || payload.action || payload._operation;
+  const operation = explicitAction || payload.operation;
+  if (
+    operation === "create" ||
+    operation === "update" ||
+    operation === "batch" ||
+    operation === "delete"
+  ) {
+    return operation;
+  }
+
+  return "create";
+};
+
+const getSanityIdCandidates = (sanityId: string): string[] => {
+  const cleanId = cleanSanityId(sanityId);
+  return [...new Set([sanityId, cleanId])];
+};
+
+const cleanSanityId = (sanityId: string): string =>
+  sanityId.startsWith("drafts.") ? sanityId.slice("drafts.".length) : sanityId;
+
+const extractCategorySlug = (value: unknown): string | undefined => {
+  if (typeof value === "string") return value;
+  if (!isRecord(value)) return undefined;
+
+  const currentSlug = getString(value.current);
+  if (currentSlug) return currentSlug;
+
+  const slug = value.slug;
+  if (typeof slug === "string") return slug;
+  if (isRecord(slug)) return getString(slug.current);
+  return undefined;
+};
+
+const extractCategoryReferenceId = (value: unknown): string | undefined => {
+  if (!isRecord(value)) return undefined;
+  return getString(value._ref) || getString(value._id);
+};
+
+interface SanityCategoryDetails {
+  id: string;
+  handle: string;
+  title: string;
 }
 
-const BASE_URL = process.env.BACKEND_URL
-const DEFAULT_FALLBACK =  process.env.SANITY_IMAGE_FALLBACK_URL || `${BASE_URL}/static/placeholder.png`;
+const getSanityCategoryDetails = async (
+  referenceId: string,
+  projectId: string,
+  dataset: string,
+): Promise<SanityCategoryDetails | undefined> => {
+  const query =
+    '*[_id == $id][0]{"id": _id, "handle": slug.current, "title": title.en}';
+  const queryUrl = new URL(
+    `https://${projectId}.api.sanity.io/v2021-10-21/data/query/${encodeURIComponent(dataset)}`,
+  );
+
+  const headers: Record<string, string> = { Accept: "application/json" };
+  const sanityToken = process.env.SANITY_API_TOKEN;
+  if (sanityToken) headers.Authorization = `Bearer ${sanityToken}`;
+
+  for (const candidateId of getSanityIdCandidates(referenceId)) {
+    const candidateUrl = new URL(queryUrl);
+    candidateUrl.searchParams.set("query", query);
+    candidateUrl.searchParams.set("$id", JSON.stringify(candidateId));
+
+    const response = await fetch(candidateUrl, {
+      headers,
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) continue;
+
+    const payload: unknown = await response.json();
+    if (!isRecord(payload) || !isRecord(payload.result)) continue;
+
+    const id = getString(payload.result.id);
+    const handle = getString(payload.result.handle);
+    if (!id || !handle) continue;
+
+    return {
+      id: cleanSanityId(id),
+      handle,
+      title: getString(payload.result.title) || handle,
+    };
+  }
+
+  return undefined;
+};
+
+const extractImageToken = (value: unknown): string | undefined => {
+  if (!isRecord(value)) return undefined;
+  const directUrl = getString(value.url);
+  if (directUrl) return directUrl;
+
+  const asset = isRecord(value.asset) ? value.asset : value;
+  return getString(asset._ref) || getString(asset._id) || getString(asset.url);
+};
+
+const getSafeImageUrl = (
+  token: string | undefined,
+  projectId: string,
+  dataset: string,
+  fallbackUrl: string,
+): string => {
+  if (!token) return fallbackUrl;
+  if (/^https?:\/\//i.test(token)) return token;
+  return getSanityCdnUrl(token, projectId, dataset, fallbackUrl);
+};
+
+const BASE_URL = process.env.BACKEND_URL;
+const DEFAULT_FALLBACK =
+  process.env.SANITY_IMAGE_FALLBACK_URL || `${BASE_URL}/static/placeholder.png`;
 const activeSyncQueues = new Map<string, Promise<void>>();
 
 const getSanityCdnUrl = (
@@ -40,18 +194,19 @@ const getSanityCdnUrl = (
   dataset: string,
   fallbackUrl: string,
 ): string => {
-  if (!refId) return fallbackUrl
+  if (!refId) return fallbackUrl;
   try {
-  const cleanRef = refId.replace(/^image-/, "");
-  const parts = cleanRef.split("-");
+    const cleanRef = refId.replace(/^image-/, "");
+    const parts = cleanRef.split("-");
 
-  if(parts.length < 3) return fallbackUrl; 
-  
-  const [ id, dimensions, extension] = parts;
-  return `https://cdn.sanity.io/images/${projectId}/${dataset}/${id}-${dimensions}.${extension}`;
-  } catch(e) {
-    return fallbackUrl
+    if (parts.length < 3) return fallbackUrl;
+    const dimensions = parts.pop();
+    const extension = parts.pop();
+    const id = parts.join("-");
 
+    return `https://cdn.sanity.io/images/${projectId}/${dataset}/${id}-${dimensions}.${extension}`;
+  } catch (e) {
+    return fallbackUrl;
   }
 };
 
@@ -63,12 +218,17 @@ export async function POST(
   const authToken = req.headers["x-sanity-sync-token"] as string | undefined;
 
   const projectId =
-    process.env.SANITY_PROJECT_ID || "mock-sanity-project-test-id-2026";
+    process.env.SANITY_PROJECT_ID ||
+    process.env.SANITY_STUDIO_PROJECT_ID ||
+    "4vzx52ot";
 
-  const dataset = process.env.SANITY_DATASET || "production";
+  const dataset =
+    process.env.SANITY_DATASET ||
+    process.env.SANITY_STUDIO_DATASET ||
+    "development";
 
   const imgFallbackUrl = DEFAULT_FALLBACK;
-  const localBypassSecret = "development-test-override-token";
+  const localBypassSecret = "development";
 
   const isValidToken =
     authToken &&
@@ -95,15 +255,59 @@ export async function POST(
 
   try {
     const rawPayload = req.body;
+    const sanityOperationHeader = req.headers["sanity-operation"];
+    const sanityDocumentIdHeader = req.headers["sanity-document-id"];
+    const sanityOperation = Array.isArray(sanityOperationHeader)
+      ? sanityOperationHeader[0]
+      : sanityOperationHeader;
+    const sanityDocumentId = Array.isArray(sanityDocumentIdHeader)
+      ? sanityDocumentIdHeader[0]
+      : sanityDocumentIdHeader;
 
-    let operation: OperationTypes =
-      rawPayload.operation ||
-      (rawPayload._action === "update" ? "update" : "create");
+    let operation = getWebhookOperation(rawPayload, sanityOperation);
     const documentType =
-      rawPayload.documentType || rawPayload._type || "product";
-    const cmsProduct: SanityRawProductInput =
+      rawPayload.documentType ||
+      (rawPayload._type === "category" ? "category" : "product");
+    const incomingCmsProduct: Partial<SanityRawProductInput> =
       rawPayload.productData || rawPayload;
-    const targetLockKey = cmsProduct?._id
+
+    const documentId: string =
+      sanityDocumentId || incomingCmsProduct?._id || rawPayload._id || "";
+
+    // Draft writes are ignored, but draft deletion events must resolve their published counterpart.
+
+    const isDraftId = documentId.startsWith("drafts.");
+    const cleanId = cleanSanityId(documentId);
+
+    if (isDraftId) {
+      if (operation === "delete") {
+        logger.info(
+          `[Sanity Sync Hook] Intercepted Delete operation for Sanity Draft ID: [${documentId}]. Safely ignoring draft garbage collection.`,
+        );
+        res.status(200).json({
+          success: true,
+          syncStatus: "ignored",
+          message:
+            "Ignored draft garbage collection deletion. Awaiting real published document payload.",
+        });
+        return;
+      }
+      logger.warn(
+        `[Sanity Sync Guard] Draft iteration [${documentId}] bypassed. Waiting for explicit Publish action.`,
+      );
+      res.status(202).json({
+        success: true,
+        syncStatus: "deferred",
+        sanityDocumentId: documentId,
+        message: "Sync deferred: Document is currently an active draft.",
+      });
+      return;
+    }
+
+    const cmsProduct: Partial<SanityRawProductInput> = cleanId
+      ? { ...incomingCmsProduct, _id: cleanId }
+      : incomingCmsProduct;
+    const targetLockKey = cmsProduct._id
       ? `${documentType}-${cmsProduct._id}`
       : null;
 
@@ -124,7 +328,12 @@ export async function POST(
         await previousThreadPromise;
         operation = "update";
       }
-      req._releaseSyncLock = releaseLockResolver;
+      req._releaseSyncLock = () => {
+        releaseLockResolver?.();
+        if (activeSyncQueues.get(targetLockKey) === currentThreadPromise) {
+          activeSyncQueues.delete(targetLockKey);
+        }
+      };
     }
 
     if (operation === "batch") {
@@ -139,47 +348,210 @@ export async function POST(
       return;
     }
 
-    if (operation === "delete") {
-      const rawDeleteSlug = rawPayload.productData?.slug || rawPayload.slug;
-      const extractedSlug: string = (
-        typeof rawDeleteSlug === "object" && rawDeleteSlug !== null
-          ? (rawDeleteSlug as Record<string, string>).current
-          : rawDeleteSlug || ""
-      ).toLowerCase().trim();
-        
+    if (documentType === "category") {
+      const queryEngine = req.scope.resolve(ContainerRegistrationKeys.QUERY);
+      const productModuleService = req.scope.resolve(
+        Modules.PRODUCT,
+      ) as IProductModuleService;
 
-      if (documentType === "category" && extractedSlug !== "") {
-        const query = req.scope.resolve(ContainerRegistrationKeys.QUERY);
-        const { data: categories } = await query.graph({
-          entity: "product_category",
-          fields: ["id", "handle", "products.id"],
-          filters: { handle: [extractedSlug] },
-        });
+      // Extract raw node safely from fields before running string mutations
+      const extractedCategorySlug =
+        extractCategorySlug(cmsProduct?.slug)?.toLowerCase().trim() || "";
+      const categoryTitle =
+        cmsProduct?.title?.en ||
+        rawPayload.productData?.title?.en ||
+        rawPayload.title?.en ||
+        "Category";
 
-        const targetCategory = categories?.[0];
-        if (
-          targetCategory &&
-          targetCategory.products &&
-          targetCategory.products.length > 0
-        ) {
+      if (operation === "delete") {
+        const sanityDocId =
+          rawPayload._id || cmsProduct?._id || sanityDocumentId || "";
+        if (!sanityDocId) {
+          res.status(400).json({
+            success: false,
+            error: "Category deletion payload is missing a Sanity document ID.",
+          });
+          return;
+        }
+
+        let targetCategory:
+          | { id: string; handle: string; products?: { id: string }[] }
+          | undefined;
+        for (const candidateId of getSanityIdCandidates(sanityDocId)) {
+          const { data: categories } = await queryEngine.graph({
+            entity: "product_category",
+            fields: ["id", "handle", "products.id"],
+            filters: {
+              metadata: { sanity_id: candidateId },
+            } as Record<string, unknown>,
+          });
+          targetCategory = categories?.[0];
+          if (targetCategory) break;
+        }
+
+        if (!targetCategory && extractedCategorySlug) {
+          const { data: categories } = await queryEngine.graph({
+            entity: "product_category",
+            fields: ["id", "handle", "products.id"],
+            filters: { handle: [extractedCategorySlug] },
+          });
+          targetCategory = categories?.[0];
+        }
+
+        if (!targetCategory) {
+          logger.info(
+            `[Sanity Sync] Category [${sanityDocId}] is already absent in Medusa.`,
+          );
+          res.status(200).json({
+            success: true,
+            message: "Category already absent from Medusa.",
+          });
+          return;
+        }
+
+        if (targetCategory.products && targetCategory.products.length > 0) {
           logger.warn(
-            `[Sanity Sync Guard] Ingestion blocked: Category [${extractedSlug}] contains active mapped products.`,
+            `[Sanity Sync Guard] Purge blocked: Category [${targetCategory.handle}] contains active mapped products.`,
           );
           res.status(200).json({
             success: false,
             message:
-              "Sync execution blocked: Relational data constraint. Cannot purge an occupied product category layer.",
+              "Sync execution blocked: Cannot delete a category with assigned products.",
           });
           return;
         }
+
+        const deletionInput: SanitySyncWorkflowInput = {
+          operation: "delete",
+          documentType: "category",
+          deletionTargetId: targetCategory.id,
+          productData: {
+            _id: sanityDocId,
+            slug: targetCategory.handle,
+            title: { en: "Category Deletion Reference" },
+            description: { en: "" },
+            basePriceDzd: 0,
+            basePriceEur: 0,
+            basePriceUsd: 0,
+            stockCount: 0,
+            categories: [],
+          },
+        };
+        logger.info(
+          `[Sanity Sync Hook] Dispatching deletion workflow step for Medusa ID: [${targetCategory.id}]`,
+        );
+        await sanitySyncProductWorkflow(req.scope).run({
+          input: deletionInput,
+        });
+
+        if (req._releaseSyncLock) req._releaseSyncLock();
+        res.status(200).json({
+          success: true,
+          message: "Category deletion synced successfully.",
+          operation,
+        });
+        return;
+      }
+      if (operation === "create" || operation === "update") {
+        if (extractedCategorySlug === "") {
+          if (req._releaseSyncLock) req._releaseSyncLock();
+          res.status(400).json({
+            success: false,
+            error:
+              "Validation failure: Target category handle cannot be empty.",
+          });
+          return;
+        }
+
+        const categories = await productModuleService.listProductCategories({
+          handle: [extractedCategorySlug],
+        });
+        const sanityId = cmsProduct?._id || "";
+        if (categories.length === 0) {
+          logger.info(
+            `[Sanity Sync Hook] Spawning standalone Category row for handle: [${extractedCategorySlug}]`,
+          );
+          await productModuleService.createProductCategories([
+            {
+              name: categoryTitle,
+              handle: extractedCategorySlug,
+              is_active: true,
+              metadata: { sanity_id: sanityId },
+            },
+          ]);
+        } else {
+          logger.info(
+            `[Sanity Sync Hook] Updating standalone Category row for handle: [${extractedCategorySlug}]`,
+          );
+          await productModuleService.updateProductCategories(categories[0].id, {
+            name: categoryTitle,
+            is_active: true,
+            metadata: {
+              ...categories[0].metadata,
+              sanity_id: sanityId,
+            },
+          });
+        }
+
+        res.status(200).json({
+          success: true,
+          message: "Category sync complete",
+          operation,
+        });
+        return;
+      }
+    }
+
+    if (operation === "delete" && documentType === "product") {
+      const sanityDocId =
+        rawPayload._id || cmsProduct?._id || sanityDocumentId || "";
+
+      logger.info(
+        `[Sanity Sync Hook] Intercepted Delete operation for Sanity Product ID: [${sanityDocId}]`,
+      );
+      if (!sanityDocId) {
+        if (req._releaseSyncLock) req._releaseSyncLock();
+        res.status(400).json({
+          success: false,
+          error:
+            "Validation Failure: Deletion payload is missing a valid document reference ID.",
+        });
+        return;
+      }
+
+      const queryEngine = req.scope.resolve(ContainerRegistrationKeys.QUERY);
+      let targetProduct: { id: string; handle: string } | undefined;
+      for (const candidateId of getSanityIdCandidates(sanityDocId)) {
+        const { data: existingProducts } = await queryEngine.graph({
+          entity: "product",
+          fields: ["id", "handle"],
+          filters: {
+            metadata: { sanity_id: candidateId },
+          } as Record<string, unknown>,
+        });
+        targetProduct = existingProducts?.[0];
+        if (targetProduct) break;
+      }
+
+      if (!targetProduct) {
+        logger.warn(
+          `[Sanity Sync Guard] Deletion skipped: No matching product row found in Neon DB for Sanity ID [${sanityDocId}].`,
+        );
+        if (req._releaseSyncLock) req._releaseSyncLock();
+        res.status(200).json({
+          success: true,
+          message: "Sync skipped: Record already absent from database.",
+        });
+        return;
       }
 
       const deletionInput: SanitySyncWorkflowInput = {
         operation: "delete",
-        documentType: documentType as DocumentType,
+        documentType: "product",
+        deletionTargetId: targetProduct.id,
         productData: {
-          _id: rawPayload.productData?._id || "deletion-payload",
-          slug: extractedSlug,
+          _id: targetProduct.id,
+          slug: targetProduct.handle,
           title: { en: "Deletion Reference" },
           description: { en: "" },
           basePriceDzd: 0,
@@ -190,77 +562,147 @@ export async function POST(
         },
       };
 
+      logger.info(
+        `[Sanity Sync Hook] Dispatching deletion workflow step for Medusa ID: [${targetProduct.id}]`,
+      );
       await sanitySyncProductWorkflow(req.scope).run({ input: deletionInput });
+      if (req._releaseSyncLock) req._releaseSyncLock();
       res.status(200).json({
         success: true,
-        message: "Sync execution complete",
+        message: "Product deletion synced successfully.",
         operation,
       });
       return;
     }
 
-    if (
-      (operation === "create" || operation === "update") &&
-      documentType === "category"
-    ) {
-      const productModuleService = req.scope.resolve(
-        Modules.PRODUCT,
-      ) as IProductModuleService;
-      const categorySlug = (
-        rawPayload.productData?.slug ||
-        rawPayload.slug ||
-        ""
-      )
-        .toLowerCase()
-        .trim();
-      const categoryTitle =
-        rawPayload.productData?.title?.en || rawPayload.title?.en || "Category";
-
-      const categories = await productModuleService.listProductCategories({
-        handle: [categorySlug],
-      });
-      if (categories.length === 0) {
-        logger.info(
-          `[Sanity Sync Hook] Spawning standalone Category row for handle: [${categorySlug}]`,
-        );
-        await productModuleService.createProductCategories([
-          { name: categoryTitle, handle: categorySlug },
-        ]);
-      } else if (operation === "update") {
-        logger.info(
-          `[Sanity Sync Hook] Updating standalone Category row for handle: [${categorySlug}]`,
-        );
-        await productModuleService.updateProductCategories(categories[0].id, {
-          name: categoryTitle,
-        });
-      }
-
-      res
-        .status(200)
-        .json({ success: true, message: "Category sync complete", operation });
-      return;
-    }
-
     if (!cmsProduct || !cmsProduct._id) {
+      if (req._releaseSyncLock) req._releaseSyncLock();
       res
         .status(400)
         .json({ error: "Invalid single product payload metadata received." });
       return;
     }
 
-    const dzdPrice = cmsProduct.pricing?.dzd ?? cmsProduct.basePriceDzd ?? 0;
-    const eurPrice = cmsProduct.pricing?.eur ?? cmsProduct.basePriceEur ?? 0;
-    const usdPrice = cmsProduct.pricing?.usd ?? cmsProduct.basePriceUsd ?? 0;
+    const queryEngine = req.scope.resolve(ContainerRegistrationKeys.QUERY);
+    const productModuleService = req.scope.resolve(
+      Modules.PRODUCT,
+    ) as IProductModuleService;
+    // Resolve category references to active Medusa category IDs before product upsert.
+    const categoryIds: string[] = [];
+    if (Array.isArray(cmsProduct.categories)) {
+      for (const category of cmsProduct.categories) {
+        const referenceId = extractCategoryReferenceId(category);
+        let matchedCategory: { id: string; handle: string } | undefined;
+
+        if (referenceId) {
+          for (const candidateId of getSanityIdCandidates(referenceId)) {
+            const { data: matchedCategories } = await queryEngine.graph({
+              entity: "product_category",
+              fields: ["id", "handle"],
+              filters: {
+                metadata: { sanity_id: candidateId },
+              } as Record<string, unknown>,
+            });
+            matchedCategory = matchedCategories?.[0];
+            if (matchedCategory) break;
+          }
+        }
+
+        const targetSlug = extractCategorySlug(category)?.toLowerCase().trim();
+        if (!matchedCategory && targetSlug) {
+          const { data: matchedCategories } = await queryEngine.graph({
+            entity: "product_category",
+            fields: ["id", "handle"],
+            filters: { handle: [targetSlug] },
+          });
+          matchedCategory = matchedCategories?.[0];
+        }
+
+        if (!matchedCategory && referenceId) {
+          try {
+            const sanityCategory = await getSanityCategoryDetails(
+              referenceId,
+              projectId,
+              dataset,
+            );
+            if (sanityCategory) {
+              const { data: matchedCategories } = await queryEngine.graph({
+                entity: "product_category",
+                fields: ["id", "handle"],
+                filters: {
+                  handle: [sanityCategory.handle.toLowerCase().trim()],
+                },
+              });
+
+              const existingCategory = matchedCategories?.[0];
+              if (existingCategory) {
+                await productModuleService.updateProductCategories(
+                  existingCategory.id,
+                  {
+                    name: sanityCategory.title,
+                    is_active: true,
+                    metadata: { sanity_id: sanityCategory.id },
+                  },
+                );
+                matchedCategory = existingCategory;
+              } else {
+                const createdCategories =
+                  await productModuleService.createProductCategories([
+                    {
+                      name: sanityCategory.title,
+                      handle: sanityCategory.handle.toLowerCase().trim(),
+                      is_active: true,
+                      metadata: { sanity_id: sanityCategory.id },
+                    },
+                  ]);
+                const createdCategory = createdCategories[0];
+                if (createdCategory) {
+                  matchedCategory = {
+                    id: createdCategory.id,
+                    handle: createdCategory.handle,
+                  };
+                  logger.info(
+                    `[Sanity Sync] Created dependency category [${sanityCategory.id}] as Medusa category [${createdCategory.id}].`,
+                  );
+                }
+              }
+            }
+          } catch (error: unknown) {
+            logger.warn(
+              `[Sanity Sync Guard] Could not resolve category reference [${referenceId}] through Sanity: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        }
+
+        if (matchedCategory) {
+          categoryIds.push(matchedCategory.id);
+        } else {
+          logger.warn(
+            `[Sanity Sync Guard] Category reference [${referenceId || targetSlug || "<empty>"}] did not resolve to an existing Medusa category.`,
+          );
+        }
+      }
+    }
+
+    const dzdPrice = cmsProduct.pricing?.dzd ?? cmsProduct.basePriceDzd;
+    const eurPrice = cmsProduct.pricing?.eur ?? cmsProduct.basePriceEur;
+    const usdPrice = cmsProduct.pricing?.usd ?? cmsProduct.basePriceUsd;
     const stockCount = cmsProduct.stockCount ?? 0;
 
-    const normalizedSlug: string = (
-      typeof cmsProduct.slug === "object" && cmsProduct.slug !== null
-        ? (cmsProduct.slug as Record<string, string>).current
-        : cmsProduct.slug || ""
-    ).toLowerCase().trim();
+    const normalizedSlug =
+      extractCategorySlug(cmsProduct.slug)?.toLowerCase().trim() || "";
+    const missingPriceFields = [
+      isFiniteNumber(dzdPrice) ? undefined : "pricing.dzd (or basePriceDzd)",
+      isFiniteNumber(eurPrice) ? undefined : "pricing.eur (or basePriceEur)",
+      isFiniteNumber(usdPrice) ? undefined : "pricing.usd (or basePriceUsd)",
+    ].filter((field): field is string => field !== undefined);
     if (
+      missingPriceFields.length > 0 ||
+      !isFiniteNumber(dzdPrice) ||
       dzdPrice < 0 ||
+      !isFiniteNumber(eurPrice) ||
       eurPrice < 0 ||
+      !isFiniteNumber(usdPrice) ||
       usdPrice < 0 ||
       stockCount < 0 ||
       normalizedSlug === ""
@@ -268,15 +710,35 @@ export async function POST(
       logger.warn(
         `[Sanity Sync Hook] Fault Ingestion blocked: Malformed payload attributes detected.`,
       );
-        if (req._releaseSyncLock) req._releaseSyncLock();
+      if (req._releaseSyncLock) req._releaseSyncLock();
 
       res.status(400).json({
         success: false,
-        error: "Core sync handling process crashed.",
-        details:
-          "Validation failure: Payload variables (prices, stock counts, handle slugs) violate system integrity constraints.",
+        error: "Invalid product payload from Sanity.",
+        details: [
+          ...(missingPriceFields.length > 0
+            ? [`Missing numeric prices: ${missingPriceFields.join(", ")}.`]
+            : []),
+          ...([dzdPrice, eurPrice, usdPrice].some(
+            (price) => isFiniteNumber(price) && price < 0,
+          )
+            ? ["Prices cannot be negative."]
+            : []),
+          ...(stockCount < 0 ? ["stockCount cannot be negative."] : []),
+          ...(normalizedSlug === "" ? ["A product slug is required."] : []),
+        ].join(" "),
       });
-    
+
+      return;
+    }
+
+    const resolvedCategoryIds = [...new Set(categoryIds)];
+    if (resolvedCategoryIds.length === 0) {
+      res.status(400).json({
+        success: false,
+        error:
+          "Product cannot be published until it references an existing Medusa category. Create and sync a category in Sanity, then assign it to the product.",
+      });
       return;
     }
 
@@ -284,40 +746,21 @@ export async function POST(
       `[Sanity Sync Hook] Ingesting operation: [${operation}] for Content Type [${documentType}] ID [${cmsProduct._id}]`,
     );
 
-    
-
-
-    const mappedImages: SanityImagePayload[] =
-      (cmsProduct.images as SanityRawWebhookImage[] | undefined)?.map(
-        (img) => ({
-          url: img?.asset?._ref
-            ? getSanityCdnUrl(
-                img.asset._ref,
-                projectId,
-                dataset,
-                imgFallbackUrl,
-              )
-            : imgFallbackUrl,
-            altText:JSON.stringify({
-              en: img.alt_en || "Product catalog element",
-              fr: img.alt_fr || "",
-              ar: img.alt_ar || "",
-
-            })
+    const mappedImages: SanityImagePayload[] = (cmsProduct.images ?? []).map(
+      (image) => ({
+        url: getSafeImageUrl(
+          extractImageToken(image),
+          projectId,
+          dataset,
+          imgFallbackUrl,
+        ),
+        altText: JSON.stringify({
+          en: image.alt_en || image.alt || "Product catalog element",
+          fr: image.alt_fr || "",
+          ar: image.alt_ar || "",
         }),
-      ) || [];
-
-    const categoriesPayload: SanityCategoryPayload[] =
-      (
-        cmsProduct.categories as
-          (SanityRawWebhookReference | string)[] | undefined
-      )?.map((ref) => {
-        const categoryId = typeof ref === "string" ? ref : ref?._ref;
-        const safeId = categoryId || "";
-        return { _id: safeId, slug: safeId, title: "Category Reference" };
-      }) || [];
-
-   
+      }),
+    );
 
     const standardizedProductData: SanityProductPayload = {
       _id: cmsProduct._id,
@@ -325,9 +768,9 @@ export async function POST(
       description: cmsProduct.description || { en: "" },
       slug: normalizedSlug || `prod-${cmsProduct._id}`,
 
-      basePriceDzd: cmsProduct.pricing?.dzd ?? cmsProduct.basePriceDzd ?? 0,
-      basePriceEur: cmsProduct.pricing?.eur ?? cmsProduct.basePriceEur ?? 0,
-      basePriceUsd: cmsProduct.pricing?.usd ?? cmsProduct.basePriceUsd ?? 0,
+      basePriceDzd: dzdPrice,
+      basePriceEur: eurPrice,
+      basePriceUsd: usdPrice,
 
       stockCount: cmsProduct.stockCount ?? 0,
       weightGrams: cmsProduct.weightGrams,
@@ -335,7 +778,7 @@ export async function POST(
       widthMm: cmsProduct.widthMm,
       heightMm: cmsProduct.heightMm,
       originCountry: cmsProduct.originCountry,
-      categories: categoriesPayload,
+      categories: [],
       images: mappedImages,
       manage_inventory: cmsProduct.manage_inventory ?? true,
       allow_backorder: cmsProduct.allow_backorder ?? false,
@@ -345,15 +788,22 @@ export async function POST(
       operation: operation as OperationTypes,
       documentType: documentType as DocumentType,
       productData: standardizedProductData,
+      categoryIds: resolvedCategoryIds,
     };
-    await sanitySyncProductWorkflow(req.scope).run({
+    const workflowResponse = await sanitySyncProductWorkflow(req.scope).run({
       input: standardizedInput,
     });
 
+    const medusaOperation = workflowResponse.result.operation;
+    logger.info(
+      `[Sanity Sync Hook] Completed Sanity [${operation}] for [${cmsProduct._id}]; Medusa outcome: [${medusaOperation}].`,
+    );
+
     res.status(200).json({
-      success: true,
-      message: "Sync execution complete",
+      success: workflowResponse.result.success,
+      message: `Sync execution complete; Medusa product ${medusaOperation}.`,
       operation: operation,
+      medusaOperation,
     });
   } catch (error: unknown) {
     const errorDetails =

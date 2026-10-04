@@ -1,6 +1,6 @@
 import http from "http";
 
-const SECRET_TOKEN = "development-test-override-token";
+const SECRET_TOKEN = "development";
 const PUBLISH_TOKEN =
   "pk_ea79ea0e54d16e2c6faf4b4bfb9049d3ad3b9a10fd7cc866d566f518f972999a";
 

@@ -17,28 +17,56 @@ export interface SanityImagePayload extends Partial<HttpTypes.AdminProductImage>
   altText?: string;
 }
 
+export interface SanityRawImageInput {
+  _type?: string;
+  asset?: {
+    _ref?: string;
+    _id?: string;
+    url?: string;
+    [key: string]: unknown;
+  };
+  url?: string;
+  alt?: string;
+  alt_en?: string;
+  alt_fr?: string;
+  alt_ar?: string;
+  [key: string]: unknown;
+}
+
+export interface SanityRawCategoryInput {
+  _type?: string;
+  _ref?: string;
+  _id?: string;
+  slug?: string | { current?: string };
+  title?: string | SanityLocalizedString;
+  [key: string]: unknown;
+}
+
 export interface SanityProductPayload {
   _id: string;
   title: SanityLocalizedString;
   description: SanityLocalizedString;
   slug: string;
-  basePriceDzd: number; 
+  basePriceDzd: number;
   basePriceEur: number;
   basePriceUsd: number;
-  thumbnail?: string; 
+  thumbnail?: string;
   images?: SanityImagePayload[];
   weightGrams?: number;
   lengthMm?: number;
   widthMm?: number;
   heightMm?: number;
   originCountry?: string;
-  stockCount: number; 
+  stockCount: number;
   categories: SanityCategoryPayload[];
   manage_inventory?: boolean;
   allow_backorder?: boolean;
 }
 
-export interface SanityRawProductInput extends Omit<Partial<SanityProductPayload>, "images" | "categories" | "slug"> {
+export interface SanityRawProductInput extends Omit<
+  Partial<SanityProductPayload>,
+  "images" | "categories" | "slug"
+> {
   _id: string;
   slug?: { current: string } | string;
   pricing?: {
@@ -46,8 +74,8 @@ export interface SanityRawProductInput extends Omit<Partial<SanityProductPayload
     eur?: number;
     usd?: number;
   };
-  images?: { _type: "image"; asset: { _ref: string; _type: "reference" }; alt?: string }[];
-  categories?: { _type: "reference"; _ref: string }[] | string[];
+  images?: SanityRawImageInput[];
+  categories?: (SanityRawCategoryInput | string)[];
 }
 
 export interface SanitySyncWorkflowInput {
@@ -55,6 +83,8 @@ export interface SanitySyncWorkflowInput {
   documentType: "category" | "product";
   productData?: SanityProductPayload;
   batchProducts?: SanityProductPayload[];
+  categoryIds?: string[];
+  deletionTargetId?: string;
 }
 
 export interface SystemDefaultsDTO {
@@ -98,7 +128,6 @@ export interface CreateFreshInventoryOutput {
   wasCreated: boolean;
 }
 
-
 export interface LinkVariantInventoryInput {
   variantId: string;
   inventoryItemId: string;
@@ -107,19 +136,24 @@ export interface LinkVariantInventoryInput {
   shouldLink: boolean;
 }
 
-
 export interface WorkflowPriceDTO extends Partial<HttpTypes.AdminPrice> {
   currency_code: string;
   amount: number;
 }
 
-export interface WorkflowVariantDTO extends Omit<Partial<HttpTypes.AdminProductVariant>, "prices"> {
+export interface WorkflowVariantDTO extends Omit<
+  Partial<HttpTypes.AdminProductVariant>,
+  "prices"
+> {
   id: string;
   sku: string;
   prices?: WorkflowPriceDTO[];
 }
 
-export interface WorkflowProductDTO extends Omit<Partial<HttpTypes.AdminProduct>, "variants"> {
+export interface WorkflowProductDTO extends Omit<
+  Partial<HttpTypes.AdminProduct>,
+  "variants"
+> {
   id: string;
   variants?: WorkflowVariantDTO[];
 }

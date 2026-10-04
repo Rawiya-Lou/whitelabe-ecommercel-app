@@ -3,13 +3,19 @@ import { HttpTypes } from "@medusajs/framework/types";
 import { SanityImagePayload, SanityProductPayload } from "../types";
 
 export function mapSanityToMedusaProduct(
-  product: SanityProductPayload & { images?: SanityImagePayload[]; lengthMm?: number; widthMm?: number; heightMm?: number; originCountry?: string ;  manage_inventory?: boolean;
-    allow_backorder?: boolean;},
+  product: SanityProductPayload & {
+    images?: SanityImagePayload[];
+    lengthMm?: number;
+    widthMm?: number;
+    heightMm?: number;
+    originCountry?: string;
+    manage_inventory?: boolean;
+    allow_backorder?: boolean;
+  },
   categoryIds: string[],
   shippingProfileId?: string,
-  salesChannelId?: string
+  salesChannelId?: string,
 ): HttpTypes.AdminCreateProduct {
-  
   const prices = [
     { currency_code: "dzd", amount: Math.round(product.basePriceDzd * 100) },
     { currency_code: "eur", amount: Math.round(product.basePriceEur * 100) },
@@ -17,27 +23,29 @@ export function mapSanityToMedusaProduct(
   ];
 
   // Resolves asset elements cleanly using fallback defaults
- const BASE_URL = process.env.BACKEND_URL || "http://localhost:9000";
- const brandedPlaceholder = process.env.SANITY_IMAGE_FALLBACK_URL || `${BASE_URL}/static/placeholder.png`;
-  const resolvedImages = product.images && product.images.length > 0
-    ? product.images.map((img) => ({
-       url: img.url || brandedPlaceholder,
-       alt: img.altText || "Product image" 
-      }))
-    : [{ url: brandedPlaceholder,  alt: { alt: "Placeholder image" } }];
+  const BASE_URL = process.env.BACKEND_URL || "http://localhost:9000";
+  const brandedPlaceholder =
+    process.env.SANITY_IMAGE_FALLBACK_URL ||
+    `${BASE_URL}/static/placeholder.png`;
+  const resolvedImages =
+    product.images && product.images.length > 0
+      ? product.images.map((img) => ({
+          url: img.url || brandedPlaceholder,
+          alt: img.altText || "Product image",
+        }))
+      : [{ url: brandedPlaceholder, alt: { alt: "Placeholder image" } }];
 
   const primaryThumbnail = resolvedImages[0].url;
-    const metadata: Record<string, string> = {
-      sanity_id: product._id || ""
-    };
-  if (product.title && typeof product.title === 'object') {
+  const metadata: Record<string, string> & { sanity_id: string } = {
+    sanity_id: product._id || "",
+  };
+  if (product.title && typeof product.title === "object") {
     Object.entries(product.title).forEach(([lang, val]) => {
-      if(val)
-      metadata[`title_${lang}`] = String(val).trim();
+      if (val) metadata[`title_${lang}`] = String(val).trim();
     });
   }
 
-  if (product.description && typeof product.description === 'object') {
+  if (product.description && typeof product.description === "object") {
     Object.entries(product.description).forEach(([lang, val]) => {
       if (val) {
         metadata[`description_${lang}`] = String(val).trim();
@@ -50,18 +58,22 @@ export function mapSanityToMedusaProduct(
     handle: product.slug.toLowerCase().trim(),
     description: product.description?.en ? product.description.en.trim() : null,
     status: ProductStatus.PUBLISHED,
-    
+
     // Media assignments
     thumbnail: primaryThumbnail,
     images: resolvedImages,
     subtitle: product.title.fr ? product.title.fr.trim() : null,
 
-    weight: product.weightGrams ? parseFloat(product.weightGrams.toString()) : 0,
+    weight: product.weightGrams
+      ? parseFloat(product.weightGrams.toString())
+      : 0,
     length: product.lengthMm ? parseFloat(product.lengthMm.toString()) : 0,
     width: product.widthMm ? parseFloat(product.widthMm.toString()) : 0,
     height: product.heightMm ? parseFloat(product.heightMm.toString()) : 0,
-    origin_country: product.originCountry ? product.originCountry.toLowerCase().trim() : "",
-    
+    origin_country: product.originCountry
+      ? product.originCountry.toLowerCase().trim()
+      : "",
+
     is_giftcard: false,
     discountable: true,
     shipping_profile_id: shippingProfileId || undefined,
@@ -74,7 +86,7 @@ export function mapSanityToMedusaProduct(
         title: "Standard Edition",
         options: { "Variant Option": "Standard" },
         prices: prices,
-         manage_inventory: product.manage_inventory ?? true,
+        manage_inventory: product.manage_inventory ?? true,
         allow_backorder: product.allow_backorder ?? false,
       },
     ],

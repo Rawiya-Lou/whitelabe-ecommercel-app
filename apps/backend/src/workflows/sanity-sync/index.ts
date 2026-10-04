@@ -8,11 +8,11 @@ import {
   createProductsWorkflow,
   updateProductsWorkflow,
 } from "@medusajs/medusa/core-flows";
+
 import { SanitySyncWorkflowInput, SyncWorkflowResult } from "./types";
 
 import { getSystemDefaultsStep } from "./steps/system-defaults";
 import { inspectExistingProductStep } from "./steps/inspect-existing-product";
-import { updateInventoryLevelsStep } from "./steps/update-inventory-levels";
 import { linkVariantToInventoryStep } from "./steps/link-variant-to-inventory";
 import { syncProductCategoriesStep } from "./steps/sync-product-categories";
 import { createFreshInventoryStep } from "./steps/create-fresh-inventory";
@@ -71,6 +71,7 @@ export const sanitySyncProductWorkflow = createWorkflow(
       () => {
         const deletionParams = transform({ input }, (data) => ({
           slug: data.input.productData?.slug || "",
+          targetId: data.input.deletionTargetId,
           type:
             data.input.documentType === "category"
               ? ("category" as const)
@@ -96,6 +97,17 @@ export const sanitySyncProductWorkflow = createWorkflow(
     const verifiedCategoryIds = syncProductCategoriesStep({
       categories: rawCategories,
     }).config({ name: "sync-single-product-categories" });
+
+    const resolvedCategoryIds = transform(
+      { input, verifiedCategoryIds },
+      (data) =>
+        Array.from(
+          new Set([
+            ...(data.input.categoryIds ?? []),
+            ...data.verifiedCategoryIds,
+          ]),
+        ),
+    );
 
     const variantSkuToken = transform({ input, isSingleUpsert }, (data) =>
       data.isSingleUpsert
@@ -124,7 +136,7 @@ export const sanitySyncProductWorkflow = createWorkflow(
     when("product-exists-update-branch", isUpdateOp, (cond) => cond).then(
       () => {
         const updatePayload = transform(
-          { input, inspection, verifiedCategoryIds },
+          { input, inspection, resolvedCategoryIds },
           (data) => ({
             products: [
               {
@@ -132,7 +144,37 @@ export const sanitySyncProductWorkflow = createWorkflow(
                 title: data.input.productData!.title.en,
                 description: data.input.productData!.description.en,
                 weight: data.input.productData!.weightGrams ?? 0,
-                category_ids: data.verifiedCategoryIds,
+                thumbnail: data.input.productData!.images?.[0]?.url,
+                images: (data.input.productData!.images ?? []).map((image) => ({
+                  url: image.url,
+                  alt: image.altText || "Product image",
+                })),
+                categories: data.resolvedCategoryIds.map((id) => ({ id })),
+                variants: [
+                  {
+                    id: data.inspection.variantId!,
+                    prices: [
+                      {
+                        currency_code: "dzd",
+                        amount: Math.round(
+                          data.input.productData!.basePriceDzd * 100,
+                        ),
+                      },
+                      {
+                        currency_code: "eur",
+                        amount: Math.round(
+                          data.input.productData!.basePriceEur * 100,
+                        ),
+                      },
+                      {
+                        currency_code: "usd",
+                        amount: Math.round(
+                          data.input.productData!.basePriceUsd * 100,
+                        ),
+                      },
+                    ],
+                  },
+                ],
               },
             ],
           }),
@@ -185,47 +227,27 @@ export const sanitySyncProductWorkflow = createWorkflow(
         linkVariantToInventoryStep(workflowWiringPayload).config({
           name: "update-lane-relationship-linkage",
         });
-
-        // Warehouse Stock Matrix Allocations
-        const inventoryUpdateParams = transform(
-          { input, inspection, systemDefaults },
-          (data) => ({
-            inventoryItemId: data.inspection.inventoryItemId ?? "",
-            stockLocationId: data.systemDefaults.stockLocationId ?? "",
-            stockedQuantity: data.input.productData?.stockCount ?? 0,
-          }),
-        );
-
-        updateInventoryLevelsStep(inventoryUpdateParams);
       },
     );
 
     // THE PRODUCT IS ABSENT (PURE CREATION PATH)
-    const isCreateOp = transform(
-      { inspection, input, isSingleUpsert },
-      (data) => Boolean(data.isSingleUpsert && !data.inspection.productExists),
+    const isCreateOp = transform({ inspection, isSingleUpsert }, (data) =>
+      Boolean(data.isSingleUpsert && !data.inspection.productExists),
     );
     when("product-absent-creation-branch", isCreateOp, (cond) => cond).then(
       () => {
         const createPayload = transform(
-          { input, systemDefaults, verifiedCategoryIds },
+          { input, systemDefaults, resolvedCategoryIds },
           (data) => {
-            if (!data.input.productData) return { products: [] };
+            const raw = data.input.productData!;
             const mappedProduct = mapSanityToMedusaProduct(
-              data.input.productData,
-              data.verifiedCategoryIds,
+              raw,
+              data.resolvedCategoryIds,
               data.systemDefaults.shippingProfileId,
               data.systemDefaults.salesChannelId,
             );
             return {
-              products: [
-                {
-                  ...mappedProduct,
-                  sales_channels: data.systemDefaults.salesChannelId
-                    ? [{ id: data.systemDefaults.salesChannelId }]
-                    : [],
-                },
-              ],
+              products: [mappedProduct],
             };
           },
         );
@@ -233,57 +255,6 @@ export const sanitySyncProductWorkflow = createWorkflow(
         // Spawns Product entries inside core engine tables cleanly (WITHOUT SKU to prevent internal workflow crashes)
         const createdProducts = createProductsWorkflow.runAsStep({
           input: createPayload,
-        });
-
-        // Provision lightweight inventory items independently
-        const freshInventoryParams = transform(
-          { inspection, variantSku: variantSkuToken, input, systemDefaults },
-          (data) => ({
-            inventoryItemExists: false,
-            preexistingInventoryItemId: "",
-            sku: data.variantSku,
-            title: `${data.input.productData?.title?.en ?? "CMS Asset"} Inventory`,
-            stockLocationId: data.systemDefaults.stockLocationId ?? "",
-            quantity: data.input.productData?.stockCount ?? 0,
-            originCountry: data.input.productData?.originCountry,
-          }),
-        );
-
-        // Configured with a unique step name mapping key signature
-        const inventorySyncResult = createFreshInventoryStep(
-          freshInventoryParams,
-        ).config({
-          name: "create-lane-inventory-provisioning",
-        });
-
-        // Inject custom SKU text configurations and bind multi-module remote link bridges safely
-        const workflowWiringPayload = transform(
-          {
-            createdProducts,
-            inventorySyncResult,
-            systemDefaults,
-            input,
-            variantSku: variantSkuToken,
-          },
-          (data) => {
-            const targetVariantId =
-              data.createdProducts?.[0]?.variants?.[0]?.id ?? "";
-
-            return {
-              shouldLink: true,
-              variantId: targetVariantId,
-              inventoryItemId: data.inventorySyncResult.inventoryItemId,
-              stockLocationId: data.systemDefaults.stockLocationId ?? "",
-              stockedQuantity: data.input.productData?.stockCount ?? 0,
-              sku: data.variantSku,
-            };
-          },
-        );
-
-        // Configured with a unique step name mapping key signature
-
-        linkVariantToInventoryStep(workflowWiringPayload).config({
-          name: "create-lane-relationship-linkage",
         });
       },
     );

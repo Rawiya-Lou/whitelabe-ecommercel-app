@@ -14,12 +14,12 @@ const uiTranslation = defineType({
       name: "locale",
       title: "Locale Code",
       type: "string",
-      options: { 
+      options: {
         list: [
           { title: "English (EN)", value: "en" },
-          { title: "العربية (AR)", value: "ar" }, 
-          { title: "French (FR)", value: "fr" }
-        ] 
+          { title: "العربية (AR)", value: "ar" },
+          { title: "French (FR)", value: "fr" },
+        ],
       },
       validation: (Rule) => Rule.required(),
     }),
@@ -38,11 +38,32 @@ const localizedString = defineType({
   title: "Localized String",
   name: "localizedString",
   type: "object",
-  fieldsets: [{ name: "translations", title: "Translations", options: { collapsible: true, collapsed: false } }],
+  fieldsets: [
+    {
+      name: "translations",
+      title: "Translations",
+      options: { collapsible: true, collapsed: false },
+    },
+  ],
   fields: [
-    defineField({ title: "English (EN)", name: "en", type: "string", validation: (Rule) => Rule.required() }),
-    defineField({ title: "العربية (AR)", name: "ar", type: "string", fieldset: "translations" }),
-    defineField({ title: "French (FR)", name: "fr", type: "string", fieldset: "translations" }),
+    defineField({
+      title: "English (EN)",
+      name: "en",
+      type: "string",
+      validation: (Rule) => Rule.required(),
+    }),
+    defineField({
+      title: "العربية (AR)",
+      name: "ar",
+      type: "string",
+      fieldset: "translations",
+    }),
+    defineField({
+      title: "French (FR)",
+      name: "fr",
+      type: "string",
+      fieldset: "translations",
+    }),
   ],
 });
 
@@ -50,11 +71,27 @@ const localizedText = defineType({
   title: "Localized Text",
   name: "localizedText",
   type: "object",
-  fieldsets: [{ name: "translations", title: "Translations", options: { collapsible: true, collapsed: false } }],
+  fieldsets: [
+    {
+      name: "translations",
+      title: "Translations",
+      options: { collapsible: true, collapsed: false },
+    },
+  ],
   fields: [
     defineField({ title: "English (EN)", name: "en", type: "text" }),
-    defineField({ title: "العربية (AR)", name: "ar", type: "text", fieldset: "translations"}),
-    defineField({ title: "French (FR)", name: "fr", type: "text", fieldset: "translations" }),
+    defineField({
+      title: "العربية (AR)",
+      name: "ar",
+      type: "text",
+      fieldset: "translations",
+    }),
+    defineField({
+      title: "French (FR)",
+      name: "fr",
+      type: "text",
+      fieldset: "translations",
+    }),
   ],
 });
 
@@ -64,13 +101,17 @@ export const category = defineType({
   type: "document",
   icon: TagIcon,
   fields: [
-    defineField({ name: "title", title: "Category Title", type: "localizedString" }),
-    defineField({ 
-      name: "slug", 
-      title: "Unique Handle / Slug", 
-      type: "slug", 
-      options: { source: "title.en", maxLength: 96 }, 
-      validation: (Rule) => Rule.required() 
+    defineField({
+      name: "title",
+      title: "Category Title",
+      type: "localizedString",
+    }),
+    defineField({
+      name: "slug",
+      title: "Unique Handle / Slug",
+      type: "slug",
+      options: { source: "title.en", maxLength: 96 },
+      validation: (Rule) => Rule.required(),
     }),
     // CATEGORY HERO IMAGE
     defineField({
@@ -84,17 +125,17 @@ export const category = defineType({
           name: "alt",
           title: "Alt Text",
           type: "string",
-          description: "Crucial for SEO and international accessibility."
-        })
-      ]
+          description: "Crucial for SEO and international accessibility.",
+        }),
+      ],
     }),
   ],
   preview: {
     select: { title: "title.en", media: "image" },
     prepare({ title, media }) {
       return { title: title || "Untitled Category", media };
-    }
-  }
+    },
+  },
 });
 
 export const product = defineType({
@@ -103,16 +144,24 @@ export const product = defineType({
   type: "document",
   icon: BasketIcon,
   fields: [
-    defineField({ name: "title", title: "Product Title", type: "localizedString" }),
-    defineField({ 
-      name: "slug", 
-      title: "Unique Handle / Slug", 
-      type: "slug", 
-      options: { source: "title.en", maxLength: 96 }, 
-      validation: (Rule) => Rule.required() 
+    defineField({
+      name: "title",
+      title: "Product Title",
+      type: "localizedString",
     }),
-    defineField({ name: "description", title: "Product Description", type: "localizedText" }),
-    
+    defineField({
+      name: "slug",
+      title: "Unique Handle / Slug",
+      type: "slug",
+      options: { source: "title.en", maxLength: 96 },
+      validation: (Rule) => Rule.required(),
+    }),
+    defineField({
+      name: "description",
+      title: "Product Description",
+      type: "localizedText",
+    }),
+
     // PRODUCTION IMAGE GALLERY ARRAY WITH ALT META DESCRIPTIONS
     defineField({
       name: "images",
@@ -120,19 +169,29 @@ export const product = defineType({
       type: "array",
       description: "First image acts automatically as the product thumbnail.",
       of: [
-        { 
-          type: "image", 
+        {
+          type: "image",
           options: { hotspot: true },
           fields: [
             defineField({
-              name: "alt",
+              name: "alt_en",
               title: "Alt Text Description",
               type: "string",
-              validation: (Rule) => Rule.required()
-            })
-          ]
-        }
-      ]
+              validation: (Rule) => Rule.required(),
+            }),
+            defineField({
+              name: "alt_fr",
+              title: "Alt Text (French)",
+              type: "string",
+            }),
+            defineField({
+              name: "alt_ar",
+              title: "Alt Text (Arabic)",
+              type: "string",
+            }),
+          ],
+        },
+      ],
     }),
 
     // INTERNATIONAL PAYMENT METRICS (Separated by Region currency keys)
@@ -140,49 +199,79 @@ export const product = defineType({
       name: "pricing",
       title: "Regional Pricing Configuration",
       type: "object",
-      description: "Set base pricing rows corresponding to targeted checkout processors.",
+      description:
+        "Set base pricing rows corresponding to targeted checkout processors.",
       fields: [
-        defineField({ 
-          name: "dzd", 
-          title: "Algeria - Chargily Gateway (DZD DA)", 
-          type: "number", 
-          validation: (Rule) => Rule.required().min(0) 
+        defineField({
+          name: "dzd",
+          title: "Algeria - Chargily Gateway (DZD DA)",
+          type: "number",
+          validation: (Rule) => Rule.required().min(0).precision(2),
         }),
-        defineField({ 
-          name: "eur", 
-          title: "Europe - Stripe Gateway (EUR €)", 
-          type: "number", 
-          validation: (Rule) => Rule.required().min(0) 
+        defineField({
+          name: "eur",
+          title: "Europe - Stripe Gateway (EUR €)",
+          type: "number",
+          validation: (Rule) => Rule.required().min(0).precision(2),
         }),
-        defineField({ 
-          name: "usd", 
-          title: "North America - Stripe Gateway (USD \$)", 
-          type: "number", 
-          validation: (Rule) => Rule.required().min(0) 
+        defineField({
+          name: "usd",
+          title: "North America - Stripe Gateway (USD \$)",
+          type: "number",
+          validation: (Rule) => Rule.required().min(0).precision(2),
         }),
-      ]
+      ],
     }),
 
-    defineField({ name: "stockCount", title: "Available Warehouse Inventory Quantity", type: "number", validation: (Rule) => Rule.required().min(0) }),
-    
+    defineField({
+      name: "stockCount",
+      title: "Available Warehouse Inventory Quantity",
+      type: "number",
+      validation: (Rule) => Rule.required().min(0),
+    }),
+
     // PHYSICAL SHIPPING METRICS (Required for accurate delivery service pricing engines)
-    defineField({ name: "weightGrams", title: "Product Weight (Grams)", type: "number", validation: (Rule) => Rule.min(0) }),
-    defineField({ name: "lengthMm", title: "Product Length (Millimeters)", type: "number", validation: (Rule) => Rule.min(0) }),
-    defineField({ name: "widthMm", title: "Product Width (Millimeters)", type: "number", validation: (Rule) => Rule.min(0) }),
-    defineField({ name: "heightMm", title: "Product Height (Millimeters)", type: "number", validation: (Rule) => Rule.min(0) }),
-    defineField({ 
-      name: "originCountry", 
-      title: "Country of Origin Code", 
-      type: "string", 
+    defineField({
+      name: "weightGrams",
+      title: "Product Weight (Grams)",
+      type: "number",
+      validation: (Rule) => Rule.min(0),
+    }),
+    defineField({
+      name: "lengthMm",
+      title: "Product Length (Millimeters)",
+      type: "number",
+      validation: (Rule) => Rule.min(0),
+    }),
+    defineField({
+      name: "widthMm",
+      title: "Product Width (Millimeters)",
+      type: "number",
+      validation: (Rule) => Rule.min(0),
+    }),
+    defineField({
+      name: "heightMm",
+      title: "Product Height (Millimeters)",
+      type: "number",
+      validation: (Rule) => Rule.min(0),
+    }),
+    defineField({
+      name: "originCountry",
+      title: "Country of Origin Code",
+      type: "string",
       description: "ISO 2-character country code (e.g., DZ, FR, US)",
-      validation: (Rule) => Rule.max(2) 
+      validation: (Rule) => Rule.max(2),
     }),
 
-    defineField({ 
-      name: "categories", 
-      title: "Associated Categories", 
-      type: "array", 
-      of: [{ type: "reference", to: [{ type: "category" }] }] 
+    defineField({
+      name: "categories",
+      title: "Associated Categories",
+      type: "array",
+      validation: (Rule) =>
+        Rule.required()
+          .min(1)
+          .error("Every product must belong to a valid category."),
+      of: [{ type: "reference", to: [{ type: "category" }] }],
     }),
   ],
   preview: {
@@ -191,10 +280,16 @@ export const product = defineType({
       return {
         title: title || "Untitled Product",
         subtitle: priceDzd ? `${priceDzd} DZD` : "Price not set",
-        media
+        media,
       };
-    }
-  }
+    },
+  },
 });
 
-export const schemaTypes = [uiTranslation, localizedString, localizedText, category, product];
+export const schemaTypes = [
+  uiTranslation,
+  localizedString,
+  localizedText,
+  category,
+  product,
+];

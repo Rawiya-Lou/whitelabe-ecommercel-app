@@ -13,6 +13,7 @@ import {
 interface DeleteCatalogItemInput {
   slug: string;
   type: "product" | "category";
+  targetId?: string;
 }
 
 interface DeleteCatalogItemResult {
@@ -46,7 +47,9 @@ export const deleteCatalogItemStep = createStep(
       const { data: categories } = await query.graph({
         entity: "product_category",
         fields: ["id", "handle", "products.id"],
-        filters: { handle: [normalizedSlug] },
+        filters: input.targetId
+          ? { id: [input.targetId] }
+          : { handle: [normalizedSlug] },
       });
 
       const targetCategory = categories?.[0];
@@ -65,9 +68,8 @@ export const deleteCatalogItemStep = createStep(
         throw new MedusaError(MedusaError.Types.NOT_ALLOWED, errorMsg);
         return new StepResponse<DeleteCatalogItemResult>({
           deleted: false,
-          error: "relational_constraint"
-        })
-        
+          error: "relational_constraint",
+        });
       }
 
       // Complete structural category deletion safely
@@ -87,7 +89,9 @@ export const deleteCatalogItemStep = createStep(
     const { data: products } = await query.graph({
       entity: "product",
       fields: ["id", "handle", "variants.id", "variants.sku"],
-      filters: { handle: [normalizedSlug] },
+      filters: input.targetId
+        ? { id: [input.targetId] }
+        : { handle: [normalizedSlug] },
     });
 
     const targetProduct = products?.[0];

@@ -10,7 +10,7 @@ export const category = defineType({
     defineField({
       name: "title",
       title: "Category Title",
-      type: "string", // Flat string used for administrative clarity
+      type: "localizedString",
       validation: (Rule) => Rule.required(),
     }),
     defineField({
@@ -18,10 +18,16 @@ export const category = defineType({
       title: "Unique Handle / Slug",
       type: "slug",
       options: {
-        source: "title",
+        source: "title.en",
         maxLength: 96,
       },
       validation: (Rule) => Rule.required(),
     }),
   ],
+  preview: {
+    select: { title: "title.en" },
+    prepare({ title }) {
+      return { title: title || "Untitled Category" };
+    },
+  },
 });
