@@ -19,6 +19,7 @@ import { batchSyncStep } from "./steps/batch-sync-step";
 import { deleteCatalogItemStep } from "./steps/delete-catalog-item";
 import { mapSanityToMedusaProduct } from "./utils/mappers";
 import "./hooks/before-product-delete";
+import "./hooks/before-category-delete";
 
 export const sanitySyncProductWorkflow = createWorkflow(
   "sanity-sync-product",
