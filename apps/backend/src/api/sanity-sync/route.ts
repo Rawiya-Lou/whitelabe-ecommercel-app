@@ -1,14 +1,14 @@
 import { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils";
 import { Logger, IProductModuleService } from "@medusajs/framework/types";
-import { sanitySyncProductWorkflow } from "../../../workflows/sanity-sync";
+import { sanitySyncProductWorkflow } from "../../workflows/sanity-sync";
 import {
   SanitySyncWorkflowInput,
   SanityProductPayload,
   SanityImagePayload,
   SanityRawProductInput,
   SanityRawImageInput,
-} from "../../../workflows/sanity-sync/types";
+} from "../../workflows/sanity-sync/types";
 
 export interface SanityRawWebhookReference {
   _key?: string;
@@ -24,6 +24,8 @@ interface SanitySyncWebhookPayload extends Partial<SanityRawProductInput> {
   _operation?: string;
   _deleted?: boolean;
   deleted?: boolean;
+  _updatedBy?: string;
+
   documentType?: string;
   _type?: string;
   documentIds?: unknown;
@@ -228,12 +230,12 @@ export async function POST(
     "development";
 
   const imgFallbackUrl = DEFAULT_FALLBACK;
-  const localBypassSecret = "development";
-
+  const configuredSyncToken = process.env.SANITY_SYNC_SECRET_TOKEN;
   const isValidToken =
     authToken &&
-    (authToken === process.env.SANITY_SYNC_SECRET_TOKEN ||
-      authToken === localBypassSecret);
+    (configuredSyncToken
+      ? authToken === configuredSyncToken
+      : process.env.NODE_ENV !== "production" && authToken === "development");
 
   if (!isValidToken) {
     logger.warn(
@@ -254,6 +256,7 @@ export async function POST(
   }
 
   try {
+   
     const rawPayload = req.body;
     const sanityOperationHeader = req.headers["sanity-operation"];
     const sanityDocumentIdHeader = req.headers["sanity-document-id"];
@@ -264,37 +267,100 @@ export async function POST(
       ? sanityDocumentIdHeader[0]
       : sanityDocumentIdHeader;
 
-    let operation = getWebhookOperation(rawPayload, sanityOperation);
+  
+const uncheckedBody = rawPayload as Record<string, any>;
+
+const incomingId: string = 
+      uncheckedBody._id || 
+      uncheckedBody.productData?._id || "";
+
+    if (incomingId.startsWith("prod_")) {
+      logger.info(`[Sanity Sync Guard] Safely bypassed automated echo webhook for Medusa-originated product: [${incomingId}].`);
+      
+      if (typeof req._releaseSyncLock === "function") {
+        req._releaseSyncLock();
+      }
+
+        res.status(200).json({
+        success: true,
+        syncStatus: "ignored",
+        message: "Feedback loop bypassed via ID attribution check."
+      });
+      return;
+    }
+    const mutationOrigin = 
+      uncheckedBody._updatedBy || 
+      uncheckedBody.productData?._updatedBy || 
+      uncheckedBody.productData?.metadata?.is_sync_origin;
+
+  if (mutationOrigin === "medusa") {
+      logger.info(
+        `[Sanity Sync Guard] Bypassed automated reverse echo loop for Sanity document: [${sanityDocumentId || rawPayload?._id}].`
+      );
+        
+      
+      if (typeof req._releaseSyncLock === "function") {
+        req._releaseSyncLock();
+      }
+      
+      res.status(200).json({
+        success: true,
+        syncStatus: "ignored",
+        message: "Automated reverse mutation loop bypassed safely.",
+      });
+      return;
+  }
+
+     let operation = getWebhookOperation(rawPayload, sanityOperation);
     const documentType =
       rawPayload.documentType ||
       (rawPayload._type === "category" ? "category" : "product");
     const incomingCmsProduct: Partial<SanityRawProductInput> =
       rawPayload.productData || rawPayload;
-
-    const documentId: string =
-      sanityDocumentId || incomingCmsProduct?._id || rawPayload._id || "";
-
-    // Draft writes are ignored, but draft deletion events must resolve their published counterpart.
-
+        const documentId: string =
+      sanityDocumentId || incomingCmsProduct?._id || rawPayload?._id || "";
+  
     const isDraftId = documentId.startsWith("drafts.");
     const cleanId = cleanSanityId(documentId);
 
     if (isDraftId) {
-      if (operation === "delete") {
-        logger.info(
-          `[Sanity Sync Hook] Intercepted Delete operation for Sanity Draft ID: [${documentId}]. Safely ignoring draft garbage collection.`,
-        );
-        res.status(200).json({
-          success: true,
-          syncStatus: "ignored",
-          message:
-            "Ignored draft garbage collection deletion. Awaiting real published document payload.",
-        });
-        return;
-      }
+     if (operation === "delete") {
+  try {
+    // If something inside this logic could throw an error, put it here
+    if (typeof req._releaseSyncLock === "function") {
+      req._releaseSyncLock();
+    }
+    
+    res.status(200).json({
+      success: true,
+      syncStatus: "ignored",
+      message: "Ignored draft garbage collection deletion. Awaiting real published document payload.",
+    });
+    return;
+  } catch (error) {
+    const errorDetails =
+      error && typeof error === "object"
+        ? JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
+        : String(error);
+    
+    // Highlight-Start
+    logger.error(
+      `[Sanity Sync Hook] Failed during delete operation for Sanity Draft ID: [${documentId}]:\n${errorDetails}`
+      
+    );
+    // Highlight-End
+    
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+}
+
+     
       logger.warn(
         `[Sanity Sync Guard] Draft iteration [${documentId}] bypassed. Waiting for explicit Publish action.`,
       );
+         if (typeof req._releaseSyncLock === "function") {
+          req._releaseSyncLock();
+        }
       res.status(202).json({
         success: true,
         syncStatus: "deferred",
@@ -370,8 +436,7 @@ export async function POST(
         "Category";
 
       if (operation === "delete") {
-        const sanityDocId =
-          rawPayload._id || cmsProduct?._id || sanityDocumentId || "";
+        const sanityDocId = cleanId;
         if (!sanityDocId) {
           res.status(400).json({
             success: false,
@@ -388,7 +453,7 @@ export async function POST(
             entity: "product_category",
             fields: ["id", "handle", "products.id"],
             filters: {
-              metadata: { sanity_id: candidateId },
+              metadata: { sanity_id: candidateId,  },
             } as Record<string, unknown>,
           });
           targetCategory = categories?.[0];
@@ -483,7 +548,7 @@ export async function POST(
               name: categoryTitle,
               handle: extractedCategorySlug,
               is_active: true,
-              metadata: { sanity_id: sanityId },
+              metadata: { sanity_id: sanityId, is_sync_origin: "sanity" },
             },
           ]);
         } else {
@@ -496,6 +561,7 @@ export async function POST(
             metadata: {
               ...categories[0].metadata,
               sanity_id: sanityId,
+              is_sync_origin: "sanity",
             },
           });
         }
@@ -608,7 +674,7 @@ export async function POST(
               entity: "product_category",
               fields: ["id", "handle"],
               filters: {
-                metadata: { sanity_id: candidateId, is_sync_origin: "sanity" },
+                metadata: { sanity_id: candidateId },
               } as Record<string, unknown>,
             });
             matchedCategory = matchedCategories?.[0];

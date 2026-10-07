@@ -1,73 +1,90 @@
 import http from "http";
 
-const SECRET_TOKEN = "development";
-const PUBLISH_TOKEN =
-  "pk_ea79ea0e54d16e2c6faf4b4bfb9049d3ad3b9a10fd7cc866d566f518f972999a";
+const SECRET_TOKEN = process.env.SANITY_SYNC_SECRET_TOKEN || "development";
+const seed = Date.now();
+const categoryId = `test-category-${seed}`;
 
-const mockWebhookPayload = {
+const mockCategoryPayload = {
+  _type: "category",
+  _id: categoryId,
+  title: { en: "Local webhook test category" },
+  slug: { current: `local-webhook-test-category-${seed}` },
+};
+
+const mockProductPayload = {
   operation: "create",
-  documentType: "product",
-  productData: {
-    _id: "test-prod-compiled-999",
-    title: {
-      en: "Compiled Heavy Duty Work Desk (Enterprise Edition v3)",
-      fr: "Bureau lourd compilé Pro",
-      ar: "مكتب عمل ميكانيكية مطور",
-    },
-    slug: "compiled-heavy-duty-work-desk",
-    pricing: {
-      dzd: 49500,
-      eur: 320,
-      usd: 340,
-    },
-    stockCount: 140,
-    weightGrams: 36500,
-    lengthMm: 1200,
-    widthMm: 800,
-    heightMm: 750,
-    originCountry: "DZ",
-    categories: [],
-    images: [],
-    manage_inventory: true,
-    allow_backorder: false,
+  _type: "product",
+  _id: `test-product-${seed}`,
+  title: { en: "Local webhook test product" },
+  slug: { current: `local-webhook-test-product-${seed}` },
+  pricing: {
+    dzd: 49500,
+    eur: 320,
+    usd: 340,
   },
+  stockCount: 140,
+  weightGrams: 36500,
+  originCountry: "DZ",
+  categories: [{ _type: "reference", _ref: categoryId }],
+  images: [],
+  manage_inventory: true,
+  allow_backorder: false,
 };
 
-const payloadString = JSON.stringify(mockWebhookPayload);
+function postWebhook(payload: object): Promise<{ statusCode: number; body: string }> {
+  const payloadString = JSON.stringify(payload);
 
-const options = {
-  hostname: "localhost",
-  port: 9000,
-  path: "/store/sanity-sync",
-  method: "POST",
-  headers: {
-    "x-sanity-sync-token": SECRET_TOKEN,
-    "x-publishable-api-key": PUBLISH_TOKEN,
-    "Content-Type": "application/json",
-    "Content-Length": Buffer.byteLength(payloadString),
-  },
-};
-
-console.log(
-  "Dispatching Local Webhook Simulation Pass directly into Medusa Engine...",
-);
-
-const req = http.request(options, (res) => {
-  let data = "";
-  res.on("data", (chunk) => {
-    data += chunk;
-  });
-  res.on("end", () => {
-    console.log(
-      `\n Transaction complete! Server Status Code: [${res.statusCode}]`,
+  return new Promise((resolve, reject) => {
+    const request = http.request(
+      {
+        hostname: "localhost",
+        port: 9000,
+        path: "/sanity-sync",
+        method: "POST",
+        headers: {
+          "x-sanity-sync-token": SECRET_TOKEN,
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(payloadString),
+        },
+      },
+      (response) => {
+        let body = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk: string) => {
+          body += chunk;
+        });
+        response.on("end", () => {
+          resolve({ statusCode: response.statusCode ?? 500, body });
+        });
+      },
     );
-    console.log(" Response Matrix:", JSON.parse(data));
+
+    request.on("error", reject);
+    request.write(payloadString);
+    request.end();
   });
-});
+}
 
-req.on("error", (e) => {
-  console.error(` Request execution collapsed: ${e.message}`);
-});
+async function main(): Promise<void> {
+  for (const payload of [mockCategoryPayload, mockProductPayload]) {
+    const result = await postWebhook(payload);
+    console.log(`Webhook status: ${result.statusCode}`);
 
-req.write(payloadString);
-req.end();
+    try {
+      console.log("Response:", JSON.parse(result.body));
+    } catch {
+      console.log("Response:", result.body);
+    }
+
+    if (result.statusCode < 200 || result.statusCode >= 300) {
+      throw new Error(`Webhook request failed with status ${result.statusCode}`);
+    }
+  }
+}
+
+main().catch((error: unknown) => {
+  console.error(
+    `Webhook simulation failed: ${error instanceof Error ? error.message : String(error)}`,
+  );
+  process.exitCode = 1;
+});

@@ -9,6 +9,7 @@ describe("mapSanityToMedusaProduct", () => {
       title: { en: "Desk" },
       description: { en: "" },
       slug: "desk",
+      metadata: { sanity_id: "sanity-product-1", title_en: "Desk", is_sync_origin: "sanity"  },
       basePriceDzd: 1234.5,
       basePriceEur: 20,
       basePriceUsd: 25.75,

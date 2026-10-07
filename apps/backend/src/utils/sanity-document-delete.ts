@@ -63,12 +63,17 @@ export async function deleteSanityDocument({
       } catch {
         // The HTTP status remains actionable if Sanity returned a non-JSON body.
       }
+      const errorMessage = responseError.error?.description || responseError.error?.message || `HTTP ${response.status}`;
       throw new MedusaError(
         MedusaError.Types.INVALID_DATA,
         responseError.error?.description ||
           responseError.error?.message ||
           `Sanity mutation failed with HTTP ${response.status}.`,
       );
+       logger.warn(
+        `[Sanity Delete Sync Warn] Content Lake rejected reverse delete mutation for [${cleanId}]: ${errorMessage}. Proceeding safely.`
+      );
+      return;
     }
 
     logger.info(

@@ -75,6 +75,7 @@ export interface SanityRawProductInput extends Omit<
     eur?: number;
     usd?: number;
   };
+  _updatedBy?: string;
   images?: SanityRawImageInput[];
   categories?: (SanityRawCategoryInput | string)[];
 }

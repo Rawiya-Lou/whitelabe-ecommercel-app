@@ -12,7 +12,7 @@
     "typecheck": "turbo typecheck",
     "lint": "turbo lint",
     "test": "turbo test",
-    "predeploy": "turbo predeploy --filter=@dtc/backend" ,
+    "predeploy": "turbo predeploy --filter=@dtc/backend",
     "test:proxy": "turbo run test:proxy --filter=storefront",
     "test:unit": "turbo run test:unit --filter=storefront",
     "test:integration": "turbo run test:integration --filter=storefront",
@@ -48,6 +48,5 @@
     "@eslint/eslintrc": {
       "ajv": "^6.12.4"
     }
-  },
-  "dependencies": {}
+  }
 }

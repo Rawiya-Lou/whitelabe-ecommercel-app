@@ -4,7 +4,7 @@ import { loadEnv } from "@medusajs/framework/utils";
 loadEnv("test", process.cwd());
 
 const BASE_URL = process.env.TEST_BASE_URL || "http://127.0.0.1:9000";
-const URL = `${BASE_URL}/store/sanity-sync`;
+const URL = `${BASE_URL}/sanity-sync`;
 const BYPASS_PUBLISH_KEY =
   process.env.PUBLISH_KEY ||
   "pk_ea79ea0e54d16e2c6faf4b4bfb9049d3ad3b9a10fd7cc866d566f518f972999a";
@@ -35,7 +35,6 @@ describe("Sanity CMS Sync Engine - E2E Lifecycle Matrix Suite", () => {
   async function dispatchSyncWebhook(
     payload: Record<string, unknown>,
     secretHeader: string | null = VALID_DEV_SECRET,
-    publishKeyHeader: string | null = BYPASS_PUBLISH_KEY,
     sanityOperationHeader?: string,
     sanityDocumentIdHeader?: string,
   ): Promise<Response> {
@@ -43,7 +42,6 @@ describe("Sanity CMS Sync Engine - E2E Lifecycle Matrix Suite", () => {
       "Content-Type": "application/json",
     };
     if (secretHeader) headers["x-sanity-sync-token"] = secretHeader;
-    if (publishKeyHeader) headers["x-publishable-api-key"] = publishKeyHeader;
     if (sanityOperationHeader) {
       headers["sanity-operation"] = sanityOperationHeader;
     }
@@ -99,19 +97,22 @@ describe("Sanity CMS Sync Engine - E2E Lifecycle Matrix Suite", () => {
     expect(textData).toContain("Unauthorized");
   }, 30000);
 
-  it("Scenario 2: Should block ingestion and throw 400 if storefront publishable key is missing", async () => {
-    const mockPayload = {
-      operation: "create",
-      documentType: "product",
-      productData: { _id: targetTestId, slug: targetTestSlug },
-    };
+  it("accepts authenticated server-to-server webhooks without a storefront publishable key", async () => {
     const response = await dispatchSyncWebhook(
-      mockPayload,
+      {
+        _type: "category",
+        _id: `${defaultCategoryId}-without-publishable-key`,
+        title: { en: "Server-to-server category" },
+        slug: { current: `${defaultCategorySlug}-without-publishable-key` },
+      },
       VALID_DEV_SECRET,
-      null,
     );
 
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      success: true,
+      message: "Category sync complete",
+    });
   }, 30000);
 
   it("Scenario 3: Should perform a pristine creation pass for a new un-indexed product asset", async () => {
@@ -137,7 +138,6 @@ describe("Sanity CMS Sync Engine - E2E Lifecycle Matrix Suite", () => {
     const response = await dispatchSyncWebhook(
       mockPayload,
       VALID_DEV_SECRET,
-      BYPASS_PUBLISH_KEY,
       "create",
     );
     if (response.status !== 200) {
@@ -385,7 +385,6 @@ describe("Sanity CMS Sync Engine - E2E Lifecycle Matrix Suite", () => {
     const response = await dispatchSyncWebhook(
       mockPayload,
       VALID_DEV_SECRET,
-      BYPASS_PUBLISH_KEY,
       "delete",
       targetTestId,
     );
@@ -399,7 +398,6 @@ describe("Sanity CMS Sync Engine - E2E Lifecycle Matrix Suite", () => {
     const repeatedDelete = await dispatchSyncWebhook(
       mockPayload,
       VALID_DEV_SECRET,
-      BYPASS_PUBLISH_KEY,
       "delete",
       targetTestId,
     );

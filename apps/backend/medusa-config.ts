@@ -3,11 +3,11 @@ import { loadEnv, defineConfig } from "@medusajs/framework/utils";
 loadEnv(process.env.NODE_ENV || "development", process.cwd());
 // If running locally, prefix with "dev_". If live, prefix with "prod_"
 const redisNamespacePrefix = process.env.NODE_ENV === "production" ? "prod_" : "dev_";
-
+const redisUrl = process.env.REDIS_URL;
 const config = defineConfig({
   projectConfig: {
     databaseUrl: process.env.DATABASE_URL,
-    redisUrl: process.env.REDIS_URL || undefined,
+    redisUrl: redisUrl,
     databaseDriverOptions: {
       connection: {
         ssl: {
@@ -35,10 +35,29 @@ const config = defineConfig({
      {
       resolve: "@medusajs/medusa/event-bus-redis",
       options: {
-        redisUrl: process.env.REDIS_URL,
+        redisUrl: redisUrl,
         // PROTECTS PRODUCTION BACKGROUND QUEUES FROM LOCAL CONFLICTS
         queueOptions: {
           prefix: redisNamespacePrefix,
+        },
+         redisOptions: {
+          maxRetriesPerRequest: null, 
+          enableReadyCheck: false,
+          keepAlive: 10000, 
+          
+          retryStrategy(times) {
+            return Math.min(times * 100, 3000); 
+          },
+           reconnectOnError(err) {
+            const targetError = "READONLY";
+            if (err.message.slice(0, targetError.length) === targetError) {
+              return true;
+            }
+            if (err.message.includes("Connection is closed")) {
+              return true; 
+            }
+            return false;
+          }
         }
       },
     },

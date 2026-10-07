@@ -23,10 +23,9 @@ export default defineMiddlewares({
         validateAndTransformBody(CalculateShippingSchema),
       ],
     },
-
-    {
+     {
       // Match your exact custom sync hook route
-      matcher: "/store/sanity-sync",
+      matcher: "/sanity-sync",
       method: "POST",
       bodyParser: { preserveRawBody: true },
       // Automatically attach an internal token placeholder so live Sanity calls bypass the storefront auth guard
@@ -40,6 +39,7 @@ export default defineMiddlewares({
         },
       ],
     },
+
     {
       matcher: "/admin/product-categories/:id",
       method: "DELETE",
