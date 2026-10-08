@@ -62,14 +62,17 @@ export const deleteCatalogItemStep = createStep(
       }
 
       // Prevent deletion if active products remain mapped to this category
-      if (targetCategory.products && targetCategory.products.length > 0) {
-        const errorMsg = `Aborting category deletion: Category [${normalizedSlug}] has ${targetCategory.products.length} products associated with it.`;
-        logger.error(`${errorMsg}`);
-        throw new MedusaError(MedusaError.Types.NOT_ALLOWED, errorMsg);
-        return new StepResponse<DeleteCatalogItemResult>({
-          deleted: false,
-          error: "relational_constraint",
-        });
+    if (targetCategory.products && targetCategory.products.length > 0) {
+        logger.info(
+          `[Sanity Sync Cleanup] Detaching ${targetCategory.products.length} product links from Category ID: [${targetCategory.id}] before database drop.`,
+        );
+        
+        const productIds = targetCategory.products.map((prod) => prod.id);
+
+        await productModuleService.updateProducts(
+          {id: productIds},
+          {category_ids: []},
+        );
       }
 
       // Complete structural category deletion safely

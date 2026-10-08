@@ -9,6 +9,7 @@ import {
   SanityRawProductInput,
   SanityRawImageInput,
 } from "../../workflows/sanity-sync/types";
+import { getSanityApiUrl, shouldBlockStagingPayload } from "./guards";
 
 export interface SanityRawWebhookReference {
   _key?: string;
@@ -256,7 +257,6 @@ export async function POST(
   }
 
   try {
-   
     const rawPayload = req.body;
     const sanityOperationHeader = req.headers["sanity-operation"];
     const sanityDocumentIdHeader = req.headers["sanity-document-id"];
@@ -267,117 +267,111 @@ export async function POST(
       ? sanityDocumentIdHeader[0]
       : sanityDocumentIdHeader;
 
-  
-const uncheckedBody = rawPayload as Record<string, any>;
 
-const incomingId: string = 
-      uncheckedBody._id || 
-      uncheckedBody.productData?._id || "";
+   
+
+    const uncheckedBody = rawPayload as Record<string, any>;
+
+    const incomingId: string =
+      uncheckedBody._id || uncheckedBody.productData?._id || "";
 
     if (incomingId.startsWith("prod_")) {
-      logger.info(`[Sanity Sync Guard] Safely bypassed automated echo webhook for Medusa-originated product: [${incomingId}].`);
-      
+      logger.info(
+        `[Sanity Sync Guard] Safely bypassed automated echo webhook for Medusa-originated product: [${incomingId}].`,
+      );
+
       if (typeof req._releaseSyncLock === "function") {
         req._releaseSyncLock();
       }
 
-        res.status(200).json({
+      res.status(200).json({
         success: true,
         syncStatus: "ignored",
-        message: "Feedback loop bypassed via ID attribution check."
+        message: "Feedback loop bypassed via ID attribution check.",
       });
       return;
     }
-    const mutationOrigin = 
-      uncheckedBody._updatedBy || 
-      uncheckedBody.productData?._updatedBy || 
-      uncheckedBody.productData?.metadata?.is_sync_origin;
 
-  if (mutationOrigin === "medusa") {
+    let operation = getWebhookOperation(rawPayload, sanityOperation);
+    const documentType =
+      rawPayload.documentType ||
+      (rawPayload._type === "category" ? "category" : "product");
+    const incomingCmsProduct: Partial<SanityRawProductInput> =
+      rawPayload.productData || rawPayload;
+    const documentId: string =
+      sanityDocumentId || incomingCmsProduct?._id || rawPayload?._id || "";
+
+      const cleanId = cleanSanityId(documentId);
+    const isDeletion = operation === "delete" || rawPayload.action === "delete";
+ 
+ const guardCheck = await shouldBlockStagingPayload(req, uncheckedBody, documentId, cleanId);
+    // Highlight-End
+
+    if (guardCheck.block) {
+      if (guardCheck.reason === "AUTHENTICATION_FAILURE") {
+        logger.error(`[Sanity Sync Guard] Blocked unauthorized webhook request. Token or API Key mismatch.`);
+        res.status(401).json({ success: false, error: "Unauthorized access path." });
+        return;
+      }
+
       logger.info(
-        `[Sanity Sync Guard] Bypassed automated reverse echo loop for Sanity document: [${sanityDocumentId || rawPayload?._id}].`
+        `[Sanity Perspective Shield] Staging transaction blocked cleanly via API lookup helper for document ID [${documentId}].`
       );
-        
-      
+       if (typeof req._releaseSyncLock === "function") {
+        req._releaseSyncLock();
+      }
+
+      res.status(200).json({
+        success: true,
+        syncStatus: "ignored",
+        message: "Medusa catalog updates are exclusively locked to Published production perspectives.",
+      });
+      return;
+    }
+
+    const incomingMetadata =
+      (incomingCmsProduct?.metadata as Record<string, unknown>) || {};
+    const mutationOrigin =
+      uncheckedBody._updatedBy ||
+      uncheckedBody.productData?._updatedBy ||
+      incomingMetadata.is_sync_origin;
+
+    const updatedByField =
+      uncheckedBody.productData?.metadata?.updatedBy ||
+      incomingMetadata.updatedBy ||
+      "sanity-studio";
+
+    if (
+      !isDeletion &&
+      (mutationOrigin === "medusa" || updatedByField === "medusa-backend")
+    ) {
+      logger.info(
+        `[Sanity Sync Guard] Bypassed automated reverse echo loop for Medusa-driven document: [${cleanId || documentId}].`,
+      );
+
       if (typeof req._releaseSyncLock === "function") {
         req._releaseSyncLock();
       }
-      
+
       res.status(200).json({
         success: true,
         syncStatus: "ignored",
         message: "Automated reverse mutation loop bypassed safely.",
       });
       return;
-  }
-
-     let operation = getWebhookOperation(rawPayload, sanityOperation);
-    const documentType =
-      rawPayload.documentType ||
-      (rawPayload._type === "category" ? "category" : "product");
-    const incomingCmsProduct: Partial<SanityRawProductInput> =
-      rawPayload.productData || rawPayload;
-        const documentId: string =
-      sanityDocumentId || incomingCmsProduct?._id || rawPayload?._id || "";
-  
-    const isDraftId = documentId.startsWith("drafts.");
-    const cleanId = cleanSanityId(documentId);
-
-    if (isDraftId) {
-     if (operation === "delete") {
-  try {
-    // If something inside this logic could throw an error, put it here
-    if (typeof req._releaseSyncLock === "function") {
-      req._releaseSyncLock();
     }
-    
-    res.status(200).json({
-      success: true,
-      syncStatus: "ignored",
-      message: "Ignored draft garbage collection deletion. Awaiting real published document payload.",
-    });
-    return;
-  } catch (error) {
-    const errorDetails =
-      error && typeof error === "object"
-        ? JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
-        : String(error);
-    
-    // Highlight-Start
-    logger.error(
-      `[Sanity Sync Hook] Failed during delete operation for Sanity Draft ID: [${documentId}]:\n${errorDetails}`
-      
-    );
-    // Highlight-End
-    
-    res.status(500).json({ success: false, error: "Internal server error" });
-  }
-}
-
-     
-      logger.warn(
-        `[Sanity Sync Guard] Draft iteration [${documentId}] bypassed. Waiting for explicit Publish action.`,
-      );
-         if (typeof req._releaseSyncLock === "function") {
-          req._releaseSyncLock();
-        }
-      res.status(202).json({
-        success: true,
-        syncStatus: "deferred",
-        sanityDocumentId: documentId,
-        message: "Sync deferred: Document is currently an active draft.",
-      });
-      return;
-    }
-
-    
 
     const cmsProduct: Partial<SanityRawProductInput> = cleanId
-      ? { ...incomingCmsProduct, _id: cleanId, metadata: {
-        ...(incomingCmsProduct.metadata as Record<string, unknown> || {}),
-        sanity_id: cleanId,
-      is_sync_origin: "sanity"
-      } }
+      ? {
+          ...incomingCmsProduct,
+          _id: cleanId,
+          metadata: {
+            ...((incomingCmsProduct.metadata as Record<string, unknown>) || {}),
+            sanity_id: cleanId,
+            is_sync_origin: "sanity",
+            updatedBy: updatedByField,
+          },
+        }
       : incomingCmsProduct;
     const targetLockKey = cmsProduct._id
       ? `${documentType}-${cmsProduct._id}`
@@ -453,7 +447,11 @@ const incomingId: string =
             entity: "product_category",
             fields: ["id", "handle", "products.id"],
             filters: {
-              metadata: { sanity_id: candidateId,  },
+              metadata: {
+                sanity_id: candidateId,
+                is_sync_origin: "sanity",
+                updatedBy: "sanity-studio",
+              },
             } as Record<string, unknown>,
           });
           targetCategory = categories?.[0];
@@ -501,12 +499,12 @@ const incomingId: string =
             slug: targetCategory.handle,
             title: { en: "Category Deletion Reference" },
             description: { en: "" },
-            basePriceDzd: 0,
-            basePriceEur: 0,
-            basePriceUsd: 0,
-            stockCount: 0,
             categories: [],
-            metadata: { sanity_id: sanityDocId, is_sync_origin: "sanity" },
+            metadata: {
+              sanity_id: sanityDocId,
+              is_sync_origin: "sanity",
+              updatedBy: "sanity-studio",
+            },
           },
         };
         logger.info(
@@ -548,7 +546,11 @@ const incomingId: string =
               name: categoryTitle,
               handle: extractedCategorySlug,
               is_active: true,
-              metadata: { sanity_id: sanityId, is_sync_origin: "sanity" },
+              metadata: {
+                sanity_id: sanityId,
+                is_sync_origin: "sanity",
+                updatedBy: "sanity-studio",
+              },
             },
           ]);
         } else {
@@ -562,6 +564,7 @@ const incomingId: string =
               ...categories[0].metadata,
               sanity_id: sanityId,
               is_sync_origin: "sanity",
+              updatedBy: "sanity-studio",
             },
           });
         }
@@ -599,7 +602,11 @@ const incomingId: string =
           entity: "product",
           fields: ["id", "handle"],
           filters: {
-            metadata: { sanity_id: candidateId },
+            metadata: {
+              sanity_id: candidateId,
+              is_sync_origin: "sanity",
+              updatedBy: "sanity-studio",
+            },
           } as Record<string, unknown>,
         });
         targetProduct = existingProducts?.[0];
@@ -627,13 +634,13 @@ const incomingId: string =
           slug: targetProduct.handle,
           title: { en: "Deletion Reference" },
           description: { en: "" },
-          basePriceDzd: 0,
-          basePriceEur: 0,
-          basePriceUsd: 0,
-          stockCount: 0,
           categories: [],
-          metadata: { sanity_id: targetProduct.id, is_sync_origin: "sanity" },
-        },  
+          metadata: {
+            sanity_id: targetProduct.id,
+            is_sync_origin: "sanity",
+            updatedBy: "sanity-studio",
+          },
+        },
       };
 
       logger.info(
@@ -674,7 +681,11 @@ const incomingId: string =
               entity: "product_category",
               fields: ["id", "handle"],
               filters: {
-                metadata: { sanity_id: candidateId },
+                metadata: {
+                  sanity_id: candidateId,
+                  updatedBy: "sanity-studio",
+                  is_sync_origin: "sanity",
+                },
               } as Record<string, unknown>,
             });
             matchedCategory = matchedCategories?.[0];
@@ -715,7 +726,11 @@ const incomingId: string =
                   {
                     name: sanityCategory.title,
                     is_active: true,
-                    metadata: { sanity_id: sanityCategory.id, is_sync_origin: "sanity" },
+                    metadata: {
+                      sanity_id: sanityCategory.id,
+                      is_sync_origin: "sanity",
+                      updatedBy: "sanity-studio",
+                    },
                   },
                 );
                 matchedCategory = existingCategory;
@@ -726,7 +741,11 @@ const incomingId: string =
                       name: sanityCategory.title,
                       handle: sanityCategory.handle.toLowerCase().trim(),
                       is_active: true,
-                      metadata: { sanity_id: sanityCategory.id, is_sync_origin: "sanity" },
+                      metadata: {
+                        sanity_id: sanityCategory.id,
+                        is_sync_origin: "sanity",
+                        updatedBy: "sanity-studio",
+                      },
                     },
                   ]);
                 const createdCategory = createdCategories[0];
@@ -846,9 +865,10 @@ const incomingId: string =
       basePriceEur: eurPrice,
       basePriceUsd: usdPrice,
       metadata: {
-        ...(cmsProduct.metadata as Record<string, unknown> || {}),
+        ...((cmsProduct.metadata as Record<string, unknown>) || {}),
         sanity_id: cmsProduct._id,
         is_sync_origin: "sanity",
+        updatedBy: "sanity-studio",
       },
 
       stockCount: cmsProduct.stockCount ?? 0,

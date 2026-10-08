@@ -156,26 +156,7 @@ export const sanitySyncProductWorkflow = createWorkflow(
                 variants: [
                   {
                     id: data.inspection.variantId!,
-                    prices: [
-                      {
-                        currency_code: "dzd",
-                        amount: Math.round(
-                          data.input.productData!.basePriceDzd * 100,
-                        ),
-                      },
-                      {
-                        currency_code: "eur",
-                        amount: Math.round(
-                          data.input.productData!.basePriceEur * 100,
-                        ),
-                      },
-                      {
-                        currency_code: "usd",
-                        amount: Math.round(
-                          data.input.productData!.basePriceUsd * 100,
-                        ),
-                      },
-                    ],
+                    prices: [],
                   },
                 ],
               },

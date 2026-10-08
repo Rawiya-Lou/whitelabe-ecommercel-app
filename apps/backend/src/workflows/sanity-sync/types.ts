@@ -47,9 +47,9 @@ export interface SanityProductPayload {
   title: SanityLocalizedString;
   description: SanityLocalizedString;
   slug: string;
-  basePriceDzd: number;
-  basePriceEur: number;
-  basePriceUsd: number;
+  basePriceDzd?: number;
+  basePriceEur?: number;
+  basePriceUsd?: number;
   thumbnail?: string;
   images?: SanityImagePayload[];
   weightGrams?: number;
@@ -57,7 +57,7 @@ export interface SanityProductPayload {
   widthMm?: number;
   heightMm?: number;
   originCountry?: string;
-  stockCount: number;
+  stockCount?: number;
   metadata: Record<string, string> & { sanity_id: string; is_sync_origin: "sanity" };
   categories: SanityCategoryPayload[];
   manage_inventory?: boolean;
@@ -75,6 +75,10 @@ export interface SanityRawProductInput extends Omit<
     eur?: number;
     usd?: number;
   };
+  weightGrams?: number,
+  lengthMm?: number,
+  widthMm?: number,
+  heightMm?: number,
   _updatedBy?: string;
   images?: SanityRawImageInput[];
   categories?: (SanityRawCategoryInput | string)[];

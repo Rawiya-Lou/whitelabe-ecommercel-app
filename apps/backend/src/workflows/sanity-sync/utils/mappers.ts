@@ -17,9 +17,9 @@ export function mapSanityToMedusaProduct(
   salesChannelId?: string,
 ): HttpTypes.AdminCreateProduct {
   const prices = [
-    { currency_code: "dzd", amount: Math.round(product.basePriceDzd * 100) },
-    { currency_code: "eur", amount: Math.round(product.basePriceEur * 100) },
-    { currency_code: "usd", amount: Math.round(product.basePriceUsd * 100) },
+    { currency_code: "dzd", amount: product.basePriceDzd ? Math.round(product.basePriceDzd * 100) : 0 },
+    { currency_code: "eur", amount: product.basePriceEur ? Math.round(product.basePriceEur * 100) : 0 },
+    { currency_code: "usd", amount: product.basePriceUsd ? Math.round(product.basePriceUsd * 100) : 0 },
   ];
 
   // Resolves asset elements cleanly using fallback defaults
@@ -57,7 +57,7 @@ export function mapSanityToMedusaProduct(
     title: product.title?.en?.trim() || "Untitled Product",
     handle: product.slug.toLowerCase().trim(),
     description: product.description?.en ? product.description.en.trim() : null,
-    status: ProductStatus.PUBLISHED,
+    status: ProductStatus.DRAFT,
 
     // Media assignments
     thumbnail: primaryThumbnail,
