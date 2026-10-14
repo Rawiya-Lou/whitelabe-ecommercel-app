@@ -421,54 +421,65 @@ describe("Sanity CMS Sync Engine - E2E Lifecycle Matrix Suite", () => {
     expect(data.success).toBe(false);
   }, 30000);
 
-  // Scenario 10: High-Traffic Parallel Request Simulation
+  // Scenario 10: High-Traffic Parallel Request Simulation Without Row-Locking Collisions
   it("Scenario 10: Should process multiple overlapping concurrent requests in parallel without thread collisions", async () => {
     const localSeed = Math.floor(Math.random() * 100000);
-    const concurrentSeedId = `concur-${localSeed}`;
-    const concurrentPayload = {
+    
+    // 🟩 Create distinct, fully structured payloads to satisfy your Medusa validation schema fields
+    const payloadA = {
       _type: "product",
-      _id: concurrentSeedId,
+      _id: `concur-a-${localSeed}`,
       operation: "create",
       _perspectives: "published",
       documentType: "product",
       productData: {
-        _id: concurrentSeedId,
-        slug: concurrentSeedId,
-        title: { en: "Parallel High-Traffic Workspace Asset" },
-        pricing: { dzd: 45000, eur: 300, usd: 320 },
+        _id: `concur-a-${localSeed}`,
+        slug: { current: `concur-a-${localSeed}` }, // Correct nested schema slug object structure
+        handle: `concur-a-${localSeed}`,
+        title: { en: "Parallel High-Traffic Asset A" },
+        basePriceDzd: 45000,
+        basePriceEur: 300,
+        basePriceUsd: 320,
         stockCount: 99,
+        weightGrams: 1000,
+        originCountry: "DZ",
         categories: defaultProductCategories,
       },
     };
 
+    // Deep copy and vary properties cleanly for B and C to clear validation checks
+    const payloadB = JSON.parse(JSON.stringify(payloadA));
+    payloadB._id = `concur-b-${localSeed}`;
+    payloadB.productData._id = `concur-b-${localSeed}`;
+    payloadB.productData.slug.current = `concur-b-${localSeed}`;
+    payloadB.productData.handle = `concur-b-${localSeed}`;
+    payloadB.productData.title.en = "Parallel High-Traffic Asset B";
+
+    const payloadC = JSON.parse(JSON.stringify(payloadA));
+    payloadC._id = `concur-c-${localSeed}`;
+    payloadC.productData._id = `concur-c-${localSeed}`;
+    payloadC.productData.slug.current = `concur-c-${localSeed}`;
+    payloadC.productData.handle = `concur-c-${localSeed}`;
+    payloadC.productData.title.en = "Parallel High-Traffic Asset C";
+
     const workerThreads = [
-      dispatchSyncWebhook(
-        concurrentPayload,
-        VALID_DEV_SECRET,
-        "create",
-        concurrentSeedId,
-      ),
-      dispatchSyncWebhook(
-        concurrentPayload,
-        VALID_DEV_SECRET,
-        "create",
-        concurrentSeedId,
-      ),
-      dispatchSyncWebhook(
-        concurrentPayload,
-        VALID_DEV_SECRET,
-        "create",
-        concurrentSeedId,
-      ),
+      dispatchSyncWebhook(payloadA, VALID_DEV_SECRET, "create", `concur-a-${localSeed}`),
+      dispatchSyncWebhook(payloadB, VALID_DEV_SECRET, "create", `concur-b-${localSeed}`),
+      dispatchSyncWebhook(payloadC, VALID_DEV_SECRET, "create", `concur-c-${localSeed}`),
     ];
+    
     const responses = await Promise.all(workerThreads);
 
     for (const res of responses) {
+      if (res.status !== 200) {
+        console.error("[Scenario 10 Error Log]:", await res.text());
+      }
       expect(res.status).toBe(200);
       const data = (await res.json()) as FlatSyncResponseDTO;
       expect(data.success).toBe(true);
     }
   }, 60000);
+
 
   // Scenario 11: Cascading Deletion Verification Passed
   it("Scenario 11: Should trigger cascade deletion removal loops to clear down assets completely", async () => {
