@@ -53,6 +53,8 @@ jobs:
         working-directory: ./apps/backend
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          COOKIE_SECRET: ${{ secrets.COOKIE_SECRET }} 
           MEDUSA_ADMIN_DASHBOARD_DISABLED: "true"
           ACTIVE_SHIPPING_PROVIDER: "manual_manual"
           STORE_WAREHOUSE_COUNTRY: "DZ"

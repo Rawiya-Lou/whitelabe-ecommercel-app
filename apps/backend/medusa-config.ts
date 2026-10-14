@@ -1,11 +1,46 @@
 import { loadEnv, defineConfig } from "@medusajs/framework/utils";
 
 loadEnv(process.env.NODE_ENV || "development", process.cwd());
-
+// If running locally, prefix with "dev_". If live, prefix with "prod_"
+const redisNamespacePrefix = process.env.NODE_ENV === "production" ? "prod_" : "dev_";
+const isProd = process.env.NOD_ENV === "production"
+const redisUrl = isProd ?  process.env.REDIS_URL : undefined;
+const eventBusModuleConfig = isProd
+  ? {
+      resolve: "@medusajs/medusa/event-bus-redis",
+      options: {
+        redisUrl: process.env.REDIS_URL,
+        queueOptions: {
+          prefix: redisNamespacePrefix,
+        },
+        redisOptions: {
+          maxRetriesPerRequest: null, 
+          enableReadyCheck: false,
+          keepAlive: 10000, 
+          retryStrategy(times: number) {
+            return Math.min(times * 100, 3000); 
+          },
+           reconnectOnError(err: Error) {
+            const targetError = "READONLY";
+            if (err.message.slice(0, targetError.length) === targetError) {
+              return true;
+            }
+            if (err.message.includes("Connection is closed")) {
+              return true; 
+            }
+            return false;
+          }
+        }
+      },
+    }
+  :{
+      // Free, in-memory local fallback queue for development workflows!
+      resolve: "@medusajs/medusa/event-bus-local"
+    };
 const config = defineConfig({
   projectConfig: {
     databaseUrl: process.env.DATABASE_URL,
-    redisUrl: process.env.REDIS_URL || undefined,
+    redisUrl: redisUrl,
     databaseDriverOptions: {
       connection: {
         ssl: {
@@ -21,15 +56,63 @@ const config = defineConfig({
       secure: false,
     },
     http: {
-      storeCors: process.env.STORE_CORS!,
-      adminCors: process.env.ADMIN_CORS!,
-      authCors: process.env.AUTH_CORS!,
+      storeCors: process.env.STORE_CORS || "/.*/",
+      adminCors: process.env.ADMIN_CORS || "/.*/",
+      authCors: process.env.AUTH_CORS || "/.*/",
       jwtSecret: process.env.JWT_SECRET,
       cookieSecret: process.env.COOKIE_SECRET,
     },
   },
 
   modules: [
+    eventBusModuleConfig,
+    //  {
+    //   resolve: "@medusajs/medusa/event-bus-redis",
+    //   options: {
+    //     redisUrl: redisUrl,
+    //     // PROTECTS PRODUCTION BACKGROUND QUEUES FROM LOCAL CONFLICTS
+    //     queueOptions: {
+    //       prefix: redisNamespacePrefix,
+    //     },
+    //      redisOptions: {
+    //       maxRetriesPerRequest: null, 
+    //       enableReadyCheck: false,
+    //       keepAlive: 10000, 
+          
+    //       retryStrategy(times) {
+    //         return Math.min(times * 100, 3000); 
+    //       },
+    //        reconnectOnError(err) {
+    //         const targetError = "READONLY";
+    //         if (err.message.slice(0, targetError.length) === targetError) {
+    //           return true;
+    //         }
+    //         if (err.message.includes("Connection is closed")) {
+    //           return true; 
+    //         }
+    //         return false;
+    //       }
+    //     }
+    //   },
+    // },
+    {
+      resolve: "@medusajs/medusa/file",
+      options: {
+        providers: [
+          {
+            resolve: "@medusajs/medusa/file-local",
+            id: "local",
+            options: {
+              // Points directly to your static folder root inside apps/backend
+              upload_dir: "static", 
+              backend_url: process.env.BACKEND_URL 
+                ? `${process.env.BACKEND_URL}/static` 
+                : "http://localhost:9000/static",
+            },
+          }
+        ]
+      }
+    },
     {
       resolve: "@medusajs/medusa/payment",
       options: {

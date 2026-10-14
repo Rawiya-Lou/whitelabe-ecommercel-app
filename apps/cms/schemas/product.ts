@@ -1,4 +1,3 @@
-// apps/cms/schemaTypes/product.ts
 import { defineType, defineField } from "sanity";
 import { BasketIcon } from "@sanity/icons/Basket"; // Visual anchor for the studio sidebar
 
@@ -8,12 +7,30 @@ export const product = defineType({
   type: "document",
   icon: BasketIcon,
   fields: [
+    // HIDDEN TRACKING FIELD: Automatically links Sanity data to Medusa's database engine
+    defineField({
+      name: "medusaId",
+      title: "Medusa System Product ID Reference",
+      type: "string",
+      readOnly: true, // Prevents business owners from accidentally editing this system token
+      hidden: ({ document }) => !document?.medusaId, // Only visible once Medusa writes back
+    }),
+
+    // SYNC TRACKING FIELD: Prevents bi-directional webhook feedback lag loops
+    defineField({
+      name: "updatedBy",
+      title: "Last Sync Origin Provider",
+      type: "string",
+      hidden: true, // Completely hidden from Content Editors in the Studio UI
+    }),
+
     defineField({
       name: "title",
       title: "Product Title",
-      type: "localizedString", 
+      type: "localizedString",
       validation: (Rule) => Rule.required(),
     }),
+
     defineField({
       name: "slug",
       title: "Unique Handle / Slug",
@@ -24,46 +41,135 @@ export const product = defineType({
       },
       validation: (Rule) => Rule.required(),
     }),
+
     defineField({
       name: "description",
       title: "Product Description",
       type: "localizedText", // Localized text object translation area
     }),
-    defineField({
-      name: "basePriceDzd",
-      title: "Price in Algeria (DZD DA)",
-      type: "number",
-      validation: (Rule) => Rule.required().min(0),
-    }),
-    defineField({
-      name: "basePriceEur",
-      title: "Price in Europe (EUR €)",
-      type: "number",
-      validation: (Rule) => Rule.required().min(0),
-    }),
-    defineField({
-      name: "basePriceUsd",
-      title: "Price in North America (USD $)",
-      type: "number",
-      validation: (Rule) => Rule.required().min(0),
-    }),
-    defineField({
-      name: "stockCount",
-      title: "Available Warehouse Inventory Quantity",
-      type: "number",
-      validation: (Rule) => Rule.required().min(0),
-    }),
+
     defineField({
       name: "weightGrams",
       title: "Product Weight (Grams)",
       type: "number",
       initialValue: 0,
     }),
+
+    defineField({
+      name: "lengthMm",
+      title: "Product Length (Millimeters)",
+      type: "number",
+    }),
+
     defineField({
       name: "categories",
-      title: "Associated Categories",
+      title: "Product Categories",
       type: "array",
-      of: [{ type: "reference", to: [{ type: "category" }] }],
+      description:
+        "Select all categories this product belongs to. You can add another category here or via Medusa Sync.",
+      validation: (Rule) => Rule.required(),
+      of: [
+        {
+          type: "reference",
+          to: [{ type: "category" }],
+          options: {
+            disableNew: true, // Forces user sync consistency, avoiding mutation race conditions
+          },
+        },
+      ],
+    }),
+
+    defineField({
+      name: "images",
+      title: "Product Images",
+      type: "array",
+      description: "Upload product files",
+      of: [
+        {
+          type: "image",
+          options: {
+            hotspot: true,
+          },
+          fields: [
+            {
+              name: "alt_en",
+              type: "string",
+              title: "Alternative Text Description (SEO & Accessibility)",
+              validation: (Rule) => Rule.required(),
+            },
+            {
+              name: "alt_fr",
+              type: "string",
+              title: "Alt Text (French)",
+              validation: (Rule) => Rule.max(500),
+            },
+            {
+              name: "alt_ar",
+              type: "string",
+              title: "Alt Text (Arabic)",
+              validation: (Rule) => Rule.max(500),
+            },
+          ],
+        },
+      ],
+    }),
+
+    defineField({
+      name: "seo",
+      title: "Search Engine Optimization (SEO)",
+      type: "object",
+      description:
+        "Custom metadata fields to optimize Google search indexing and social sharing appearance.",
+      options: {
+        collapsed: true,
+        collapsible: true,
+      },
+      fields: [
+        defineField({
+          name: "metaTitle",
+          title: "Meta Title",
+          type: "localizedString", // Aligned with your existing multilingual system
+          description:
+            "Ideally between 50–60 characters. Defaults to Product Title if left blank.",
+        }),
+        defineField({
+          name: "metaDescription",
+          title: "Meta Description",
+          type: "localizedText", // Matches your paragraph translation blocks
+          description:
+            "Ideally between 150–160 characters. Summarize the product hook for search results.",
+        }),
+        defineField({
+          name: "openGraphImage",
+          title: "Social Share Image (Open Graph)",
+          type: "image",
+          description:
+            "Custom thumbnail used when this product link is shared on WhatsApp, Facebook, or X.",
+          options: {
+            hotspot: true,
+          },
+        }),
+        defineField({
+          name: "keywords",
+          title: "Keywords / Search Tags",
+          type: "array",
+          of: [{ type: "string" }],
+          description:
+            "Comma-separated search phrases (e.g., 'organic', 'handmade', 'algeria').",
+        }),
+      ],
     }),
   ],
+
+  preview: {
+    select: { title: "title.en", subtitle: "title.fr", media: "images.0" },
+    prepare(selection) {
+      const { title, subtitle, media } = selection;
+      return {
+        title: title || "Untitled Product",
+        subtitle: subtitle ? `FR: ${subtitle}` : undefined,
+        media: media,
+      };
+    },
+  },
 });
