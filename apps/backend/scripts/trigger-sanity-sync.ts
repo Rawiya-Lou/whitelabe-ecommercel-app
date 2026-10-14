@@ -1,4 +1,5 @@
 import http from "http";
+import { MedusaError } from "@medusajs/framework/utils";
 
 const SECRET_TOKEN = process.env.SANITY_SYNC_SECRET_TOKEN || "development";
 const seed = Date.now();
@@ -77,7 +78,7 @@ async function main(): Promise<void> {
     }
 
     if (result.statusCode < 200 || result.statusCode >= 300) {
-      throw new Error(`Webhook request failed with status ${result.statusCode}`);
+      throw new MedusaError( MedusaError.Types.UNEXPECTED_STATE, `Webhook request failed with status ${result.statusCode}`);
     }
   }
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest"
-import upsertWilayaRateWorkflow from "../seed-wilayas/upsert-wilaya-rate"
-import { ALGERIAN_LOGISTICS_MODULE } from "../../../src/modules/algerian-logistics"
+import upsertWilayaRateWorkflow from "../../seed-wilayas/upsert-wilaya-rate"
+import { ALGERIAN_LOGISTICS_MODULE } from "../../../../src/modules/algerian-logistics"
 import { createContainer, asValue } from "awilix"
 import type { MedusaContainer } from "@medusajs/framework/types"
 

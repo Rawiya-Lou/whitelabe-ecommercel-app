@@ -15,6 +15,15 @@ export const product = defineType({
       readOnly: true, // Prevents business owners from accidentally editing this system token
       hidden: ({ document }) => !document?.medusaId, // Only visible once Medusa writes back
     }),
+
+    // SYNC TRACKING FIELD: Prevents bi-directional webhook feedback lag loops
+    defineField({
+      name: "updatedBy",
+      title: "Last Sync Origin Provider",
+      type: "string",
+      hidden: true, // Completely hidden from Content Editors in the Studio UI
+    }),
+
     defineField({
       name: "title",
       title: "Product Title",
@@ -32,6 +41,7 @@ export const product = defineType({
       },
       validation: (Rule) => Rule.required(),
     }),
+
     defineField({
       name: "description",
       title: "Product Description",
@@ -44,6 +54,7 @@ export const product = defineType({
       type: "number",
       initialValue: 0,
     }),
+
     defineField({
       name: "lengthMm",
       title: "Product Length (Millimeters)",
@@ -52,16 +63,22 @@ export const product = defineType({
 
     defineField({
       name: "categories",
-      title: "product Categories",
+      title: "Product Categories",
       type: "array",
       description:
         "Select all categories this product belongs to. You can add another category here or via Medusa Sync.",
-      validation: (Rule) =>
-        Rule.required()
-          .min(1)
-          .error("Every product must belong to a valid category."),
-      of: [{ type: "reference", to: [{ type: "category" }] }],
+      validation: (Rule) => Rule.required(),
+      of: [
+        {
+          type: "reference",
+          to: [{ type: "category" }],
+          options: {
+            disableNew: true, // Forces user sync consistency, avoiding mutation race conditions
+          },
+        },
+      ],
     }),
+
     defineField({
       name: "images",
       title: "Product Images",

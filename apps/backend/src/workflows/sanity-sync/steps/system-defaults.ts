@@ -26,7 +26,7 @@ export const getSystemDefaultsStep = createStep(
       query.graph({
         entity: "sales_channel",
         fields: ["id", "name"],
-        filters: { name: ["Default Sales Channel"] },
+        filters: { is_disabled: false},
       }),
       query.graph({
         entity: "shipping_profile",
@@ -38,6 +38,10 @@ export const getSystemDefaultsStep = createStep(
         fields: ["id", "name"],
       }),
     ]);
+
+    const targetedChannel = 
+      salesChannels?.find(sc => sc.name === "Default Sales Channel") || 
+      salesChannels?.[0];
 
     const salesChannelId = salesChannels?.[0]?.id || "";
     const shippingProfileId = shippingProfiles?.[0]?.id || "";

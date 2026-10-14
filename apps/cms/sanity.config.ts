@@ -1,4 +1,4 @@
-import { defineConfig } from "sanity";
+import { defineConfig, SanityDocument} from "sanity";
 import { structureTool } from "sanity/structure";
 import { visionTool } from "@sanity/vision";
 import { codeInput } from "@sanity/code-input";
@@ -29,5 +29,30 @@ export default defineConfig({
   localizedText,
   category,
   product],
+  },
+
+   validation: {
+    async validateDocument({ document, getClient }: { document: SanityDocument; getClient: (options: { apiVersion: string }) => any }) {
+      if (document?._type !== 'product') return []
+
+      const categoriesArray = (document as any).categories
+      if (!categoriesArray || !Array.isArray(categoriesArray) || categoriesArray.length === 0) {
+        return []
+      }
+      const targetReferences = categoriesArray.map((ref: any) => ref?._ref).filter(Boolean)
+      const hasDraftPointers = targetReferences.some((refId: string) => refId.startsWith('drafts.'))
+
+      if (hasDraftPointers) {
+        return [
+          {
+            message: 'Category reference layers are adjusting cache streams. Click Publish again in one second.',
+            path: ['categories'],
+            level: 'warning', 
+          },
+        ]
+      }
+
+      return []
+    },
   },
 });
