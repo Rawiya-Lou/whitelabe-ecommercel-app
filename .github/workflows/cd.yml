@@ -31,46 +31,10 @@ jobs:
           echo "Triggering Vercel Sanity Studio CMS deployment..."
           curl -X POST -f "$VERCEL_CMS_HOOK"
           echo "Vercel Sanity Studio deployment triggered successfully."
-  # 1. Run migrations directly against the DB before launching the app
-  run-migrations:
-    name: Run Database Migrations
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: "npm"
-
-      - name: Install Monorepo Dependencies
-        run: npm ci
-
-      # We only need to run the migrations script via your workspace tool
-      - name: Run Medusa Migrations & Seed Initialization
-        working-directory: ./apps/backend
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          COOKIE_SECRET: ${{ secrets.COOKIE_SECRET }} 
-          MEDUSA_ADMIN_DASHBOARD_DISABLED: "true"
-          ACTIVE_SHIPPING_PROVIDER: "manual_manual"
-          STORE_WAREHOUSE_COUNTRY: "DZ"
-          STORE_NAME: "Production Instance"
-          STRIPE_API_KEY: "sk_test_CI_MOCK_SECRET_KEY"
-          STRIPE_WEBHOOK_SECRET: "whsec_CI_MOCK_WEBHOOK_SECRET"
-          CHARGILY_SECRET_KEY: "test_sk_mock_secret_key"
-          CHARGILY_IS_TEST_MODE: "true"
-          
-
-        run: npm run build && npm run predeploy
-
-  # 2. Trigger Render to pull, use build-backend.js, and host
+ 
+  #  Trigger Render to pull, use build-backend.js, and host
   deploy-backend-render:
     name: Trigger Render Backend Deploy
-    needs: run-migrations
     runs-on: ubuntu-latest
     steps:
       - name: Call Render Deploy Hook
