@@ -3,7 +3,7 @@ import { loadEnv, defineConfig } from "@medusajs/framework/utils";
 loadEnv(process.env.NODE_ENV || "development", process.cwd());
 // If running locally, prefix with "dev_". If live, prefix with "prod_"
 const redisNamespacePrefix = process.env.NODE_ENV === "production" ? "prod_" : "dev_";
-const isProd = process.env.NOD_ENV === "production"
+const isProd = process.env.NODE_ENV === "production"
 const redisUrl = isProd ?  process.env.REDIS_URL : undefined;
 const eventBusModuleConfig = isProd
   ? {
