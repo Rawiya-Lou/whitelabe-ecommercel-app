@@ -5,42 +5,47 @@ loadEnv(process.env.NODE_ENV || "development", process.cwd());
 const redisNamespacePrefix = process.env.NODE_ENV === "production" ? "prod_" : "dev_";
 const isProd = process.env.NODE_ENV === "production"
 const redisUrl = isProd ?  process.env.REDIS_URL : undefined;
-const eventBusModuleConfig = isProd
-  ? {
-      resolve: "@medusajs/medusa/event-bus-redis",
-      options: {
-        redisUrl: process.env.REDIS_URL,
-        queueOptions: {
-          prefix: redisNamespacePrefix,
-        },
-        redisOptions: {
-          maxRetriesPerRequest: null, 
-          enableReadyCheck: false,
-          keepAlive: 10000, 
-          retryStrategy(times: number) {
-            return Math.min(times * 100, 3000); 
-          },
-           reconnectOnError(err: Error) {
-            const targetError = "READONLY";
-            if (err.message.slice(0, targetError.length) === targetError) {
-              return true;
-            }
-            if (err.message.includes("Connection is closed")) {
-              return true; 
-            }
-            return false;
-          }
-        }
-      },
-    }
-  :{
-      // Free, in-memory local fallback queue for development workflows!
-      resolve: "@medusajs/medusa/event-bus-local"
-    };
+// const eventBusModuleConfig = isProd
+//   ? {
+//       resolve: "@medusajs/medusa/event-bus-redis",
+//       options: {
+//         redisUrl: process.env.REDIS_URL,
+//         queueOptions: {
+//           prefix: redisNamespacePrefix,
+//         },
+//         redisOptions: {
+//           maxRetriesPerRequest: null, 
+//           enableReadyCheck: false,
+//           keepAlive: 10000, 
+//           retryStrategy(times: number) {
+//             return Math.min(times * 100, 3000); 
+//           },
+//            reconnectOnError(err: Error) {
+//             const targetError = "READONLY";
+//             if (err.message.slice(0, targetError.length) === targetError) {
+//               return true;
+//             }
+//             if (err.message.includes("Connection is closed")) {
+//               return true; 
+//             }
+//             return false;
+//           }
+//         }
+//       },
+//     }
+//   :{
+//       // Free, in-memory local fallback queue for development workflows!
+//       resolve: "@medusajs/medusa/event-bus-local"
+//     };
+
+const eventBusModuleConfig = {
+  resolve: "@medusajs/medusa/event-bus-local",
+  options: {}
+};
 const config = defineConfig({
   projectConfig: {
     databaseUrl: process.env.DATABASE_URL,
-    redisUrl: redisUrl,
+    redisUrl: undefined,
     databaseDriverOptions: {
       connection: {
         ssl: {
