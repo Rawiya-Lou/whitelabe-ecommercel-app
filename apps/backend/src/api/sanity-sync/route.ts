@@ -213,7 +213,6 @@ const getSanityCdnUrl = (
   }
 };
 
-
 export async function POST(
   req: AuthenticatedSyncRequest,
   res: MedusaResponse,
@@ -438,26 +437,22 @@ export async function POST(
           `[Sanity Sync Guard] Bypassed implicit internal draft cleanup for Entity: [${incomingId}].`,
         );
         if (req._releaseSyncLock) req._releaseSyncLock();
-        res
-          .status(202)
-          .json({
-            success: true,
-            syncStatus: "deferred",
-            message: "Draft drop bypassed to secure live data mappings.",
-          });
+        res.status(202).json({
+          success: true,
+          syncStatus: "deferred",
+          message: "Draft drop bypassed to secure live data mappings.",
+        });
         return;
       }
       logger.info(
         `[Sanity Sync] Deferring execution loop for un-published staging document: [${incomingId}].`,
       );
       if (req._releaseSyncLock) req._releaseSyncLock();
-      res
-        .status(202)
-        .json({
-          success: true,
-          syncStatus: "deferred",
-          sanityDocumentId: cleanId,
-        });
+      res.status(202).json({
+        success: true,
+        syncStatus: "deferred",
+        sanityDocumentId: cleanId,
+      });
       return;
     }
 
@@ -895,53 +890,8 @@ export async function POST(
       }
     }
 
-    const dzdPrice = cmsProduct.pricing?.dzd ?? cmsProduct.basePriceDzd;
-    const eurPrice = cmsProduct.pricing?.eur ?? cmsProduct.basePriceEur;
-    const usdPrice = cmsProduct.pricing?.usd ?? cmsProduct.basePriceUsd;
-    const stockCount = cmsProduct.stockCount ?? 0;
-
     const normalizedSlug =
       extractCategorySlug(cmsProduct.slug)?.toLowerCase().trim() || "";
-    const missingPriceFields = [
-      isFiniteNumber(dzdPrice) ? undefined : "pricing.dzd (or basePriceDzd)",
-      isFiniteNumber(eurPrice) ? undefined : "pricing.eur (or basePriceEur)",
-      isFiniteNumber(usdPrice) ? undefined : "pricing.usd (or basePriceUsd)",
-    ].filter((field): field is string => field !== undefined);
-    if (
-      missingPriceFields.length > 0 ||
-      !isFiniteNumber(dzdPrice) ||
-      dzdPrice < 0 ||
-      !isFiniteNumber(eurPrice) ||
-      eurPrice < 0 ||
-      !isFiniteNumber(usdPrice) ||
-      usdPrice < 0 ||
-      stockCount < 0 ||
-      normalizedSlug === ""
-    ) {
-      logger.warn(
-        `[Sanity Sync Hook] Fault Ingestion blocked: Malformed payload attributes detected.`,
-      );
-      if (req._releaseSyncLock) req._releaseSyncLock();
-
-      res.status(400).json({
-        success: false,
-        error: "Invalid product payload from Sanity.",
-        details: [
-          ...(missingPriceFields.length > 0
-            ? [`Missing numeric prices: ${missingPriceFields.join(", ")}.`]
-            : []),
-          ...([dzdPrice, eurPrice, usdPrice].some(
-            (price) => isFiniteNumber(price) && price < 0,
-          )
-            ? ["Prices cannot be negative."]
-            : []),
-          ...(stockCount < 0 ? ["stockCount cannot be negative."] : []),
-          ...(normalizedSlug === "" ? ["A product slug is required."] : []),
-        ].join(" "),
-      });
-
-      return;
-    }
 
     const resolvedCategoryIds = [...new Set(categoryIds)];
     if (resolvedCategoryIds.length === 0) {
@@ -979,9 +929,6 @@ export async function POST(
       description: cmsProduct.description || { en: "" },
       slug: normalizedSlug || `prod-${cmsProduct._id}`,
 
-      basePriceDzd: dzdPrice,
-      basePriceEur: eurPrice,
-      basePriceUsd: usdPrice,
       metadata: {
         ...((cmsProduct.metadata as Record<string, unknown>) || {}),
         sanity_id: cmsProduct._id,
