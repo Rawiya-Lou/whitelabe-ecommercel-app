@@ -54,8 +54,12 @@ export default async function syncProductCategoriesToSanity({
     entity: "product",
     fields: [
       "id",
+      "title",
+      "handle",
+      "description",
       "metadata",
       "categories.id",
+      "categories.name",
       "categories.handle",
       "categories.metadata",
     ],
@@ -86,7 +90,7 @@ export default async function syncProductCategoriesToSanity({
   const sanityProductId =
     typeof productMetadata.sanity_id === "string"
       ? productMetadata.sanity_id
-      : product.id;
+      : product.id.replace("_", "-");
 
   const categories = (product.categories ?? []).flatMap((category) => {
     if (!category) return [];
@@ -94,7 +98,7 @@ export default async function syncProductCategoriesToSanity({
     let resolvedSanityRef =
       typeof category.metadata?.sanity_id === "string"
         ? category.metadata.sanity_id
-        : category.handle;
+        : `category-${category.id.replace("_", "-")}`;
 
     if (!resolvedSanityRef) {
       logger.warn(
@@ -103,7 +107,6 @@ export default async function syncProductCategoriesToSanity({
       return [];
     }
 
-    // Clean out any lingering internal draft prefix loops to satisfy the schema engine
     resolvedSanityRef = String(resolvedSanityRef).replace("drafts.", "");
 
     return [
@@ -116,7 +119,80 @@ export default async function syncProductCategoriesToSanity({
   });
 
   const mutationUrl = `https://${projectId}.api.sanity.io/v2021-06-07/data/mutate/${encodeURIComponent(dataset)}`;
+  const mutationPayload = {
+    mutations: [
+      {
+        createIfNotExists: {
+          _id: sanityProductId,
+          _type: "product",
+          medusaId: product.id,
+          updatedBy: "medusa",
+          title: {
+            en: product.title,
+          },
+          slug: {
+            _type: "slug",
+            current: product.handle,
+          },
 
+          description: {
+            en: product.description || "",
+          },
+        },
+      },
+      {
+        patch: {
+          id: sanityProductId,
+          set: {
+            medusaId: product.id,
+            updatedBy: "medusa",
+            title: {
+              en: product.title,
+            },
+            slug: {
+              _type: "slug",
+              current: product.handle,
+            },
+            description: {
+              en: product.description || "",
+            },
+            categories: categories, // Keeps your category arrays linking cleanly
+          },
+        },
+      },
+      ...(product.categories ?? []).flatMap((category) => {
+        if (!category) return [];
+
+        const targetCategorySanityId =
+          typeof category.metadata?.sanity_id === "string"
+            ? category.metadata.sanity_id
+            : `category-${category.id.replace("_", "-")}`;
+        const cleanCategoryName = category.name || "Category";
+
+        return [
+          {
+            createIfNotExists: {
+              _id: targetCategorySanityId,
+              _type: "category",
+              medusaId: category.id, // Populates your custom metadata hidden input!
+              title: { en: cleanCategoryName },
+              slug: { _type: "slug", current: category.handle },
+            },
+          },
+          {
+            patch: {
+              id: targetCategorySanityId,
+              set: {
+                medusaId: category.id,
+                title: { en: cleanCategoryName },
+                slug: { _type: "slug", current: category.handle },
+              },
+            },
+          },
+        ];
+      }),
+    ],
+  };
   try {
     const response = await fetch(mutationUrl, {
       method: "POST",
@@ -124,17 +200,7 @@ export default async function syncProductCategoriesToSanity({
         Authorization: `Bearer ${sanityToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        mutations: [
-          {
-            patch: {
-              id: sanityProductId,
-              set: { categories, updatedBy: "medusa" },
-            },
-          },
-         
-        ],
-      }),
+      body: JSON.stringify(mutationPayload),
     });
 
     if (!response.ok) {
