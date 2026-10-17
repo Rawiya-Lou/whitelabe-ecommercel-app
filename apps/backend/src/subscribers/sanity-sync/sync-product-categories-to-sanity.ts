@@ -138,6 +138,14 @@ export default async function syncProductCategoriesToSanity({
           description: {
             en: product.description || "",
           },
+          basePriceDzd: 0,
+          basePriceEur: 0,
+          basePriceUsd: 0,
+          weightGrams: product.weight || 0,
+          lengthMm: product.length || 0,
+          widthMm: product.width || 0,
+          heightMm: product.height || 0,
+          stockCount: 0
         },
       },
       {
@@ -156,7 +164,15 @@ export default async function syncProductCategoriesToSanity({
             description: {
               en: product.description || "",
             },
-            categories: categories, // Keeps your category arrays linking cleanly
+            categories: categories,
+            basePriceDzd: typeof productMetadata.basePriceDzd === "number" ? productMetadata.basePriceDzd : 0,
+            basePriceEur: typeof productMetadata.basePriceEur === "number" ? productMetadata.basePriceEur : 0,
+            basePriceUsd: typeof productMetadata.basePriceUsd === "number" ? productMetadata.basePriceUsd : 0,
+            weightGrams: typeof product.weight === "number" ? product.weight : 0,
+            lengthMm: typeof product.length === "number" ? product.length : 0,
+            widthMm: typeof product.width === "number" ? product.width : 0,
+            heightMm: typeof product.height === "number" ? product.height : 0
+          
           },
         },
       },
