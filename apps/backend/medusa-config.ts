@@ -2,50 +2,47 @@ import { loadEnv, defineConfig } from "@medusajs/framework/utils";
 
 loadEnv(process.env.NODE_ENV || "development", process.cwd());
 // If running locally, prefix with "dev_". If live, prefix with "prod_"
-const redisNamespacePrefix = process.env.NODE_ENV === "production" ? "prod_" : "dev_";
 const isProd = process.env.NODE_ENV === "production"
+const redisNamespacePrefix = isProd ? "prod_" : "dev_";
 const redisUrl = isProd ?  process.env.REDIS_URL : undefined;
-// const eventBusModuleConfig = isProd
-//   ? {
-//       resolve: "@medusajs/medusa/event-bus-redis",
-//       options: {
-//         redisUrl: process.env.REDIS_URL,
-//         queueOptions: {
-//           prefix: redisNamespacePrefix,
-//         },
-//         redisOptions: {
-//           maxRetriesPerRequest: null, 
-//           enableReadyCheck: false,
-//           keepAlive: 10000, 
-//           retryStrategy(times: number) {
-//             return Math.min(times * 100, 3000); 
-//           },
-//            reconnectOnError(err: Error) {
-//             const targetError = "READONLY";
-//             if (err.message.slice(0, targetError.length) === targetError) {
-//               return true;
-//             }
-//             if (err.message.includes("Connection is closed")) {
-//               return true; 
-//             }
-//             return false;
-//           }
-//         }
-//       },
-//     }
-//   :{
-//       // Free, in-memory local fallback queue for development workflows!
-//       resolve: "@medusajs/medusa/event-bus-local"
-//     };
+const eventBusModuleConfig = isProd
+  ? {
+      resolve: "@medusajs/medusa/event-bus-redis",
+      options: {
+        redisUrl: redisUrl,
+        queueOptions: {
+          prefix: redisNamespacePrefix,
+        },
+        redisOptions: {
+          maxRetriesPerRequest: null, 
+          enableReadyCheck: false,
+          keepAlive: 10000, 
+          retryStrategy(times: number) {
+            return Math.min(times * 100, 3000); 
+          },
+           reconnectOnError(err: Error) {
+            const targetError = "READONLY";
+            if (err.message.slice(0, targetError.length) === targetError) {
+              return true;
+            }
+            if (err.message.includes("Connection is closed")) {
+              return true; 
+            }
+            return false;
+          }
+        }
+      },
+    }
+  :{
+      // Free, in-memory local fallback queue for development workflows!
+      resolve: "@medusajs/medusa/event-bus-local",
+      options: {}
+    };
 
-const eventBusModuleConfig = {
-  resolve: "@medusajs/medusa/event-bus-local",
-  options: {}
-};
 const config = defineConfig({
   projectConfig: {
     databaseUrl: process.env.DATABASE_URL,
-    redisUrl: undefined,
+    redisUrl: redisUrl,
     databaseDriverOptions: {
       connection: {
         ssl: {
@@ -71,35 +68,6 @@ const config = defineConfig({
 
   modules: [
     eventBusModuleConfig,
-    //  {
-    //   resolve: "@medusajs/medusa/event-bus-redis",
-    //   options: {
-    //     redisUrl: redisUrl,
-    //     // PROTECTS PRODUCTION BACKGROUND QUEUES FROM LOCAL CONFLICTS
-    //     queueOptions: {
-    //       prefix: redisNamespacePrefix,
-    //     },
-    //      redisOptions: {
-    //       maxRetriesPerRequest: null, 
-    //       enableReadyCheck: false,
-    //       keepAlive: 10000, 
-          
-    //       retryStrategy(times) {
-    //         return Math.min(times * 100, 3000); 
-    //       },
-    //        reconnectOnError(err) {
-    //         const targetError = "READONLY";
-    //         if (err.message.slice(0, targetError.length) === targetError) {
-    //           return true;
-    //         }
-    //         if (err.message.includes("Connection is closed")) {
-    //           return true; 
-    //         }
-    //         return false;
-    //       }
-    //     }
-    //   },
-    // },
     {
       resolve: "@medusajs/medusa/file",
       options: {
@@ -171,4 +139,4 @@ const config = defineConfig({
   },
 });
 
-module.exports = config;
+export default config;

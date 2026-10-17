@@ -307,7 +307,7 @@ export async function POST(
 
     const hasMedusaSourceTag =
       rawPayload._updatedBy === "medusa" ||
-      uncheckedBody._updatedBy === "medusa";
+      uncheckedBody._updatedBy === "medusa" ||
       rawPayload.updatedBy === "medusa" ||
       uncheckedBody.updatedBy === "medusa";
 
