@@ -47,22 +47,27 @@ export function mapSanityToMedusaProduct(
 
   if (product.description && typeof product.description === "object") {
     Object.entries(product.description).forEach(([lang, val]) => {
-      if (val) {
-        metadata[`description_${lang}`] = String(val).trim();
+      if (typeof val === "string" && val.trim() !== "") {
+        metadata[`description_${lang}`] = val.trim();
       }
     });
   }
 
+  const enTitle = typeof product.title?.en === "string" ? product.title.en.trim() : "";
+  const frTitle = typeof product.title?.fr === "string" ? product.title.fr.trim() : "";
+  const enDescription = typeof product.description?.en === "string" ? product.description.en.trim() : "";
+
+
   return {
-    title: product.title?.en?.trim() || "Untitled Product",
+    title: enTitle || "Untitled Product",
     handle: product.slug.toLowerCase().trim(),
-    description: product.description?.en ? product.description.en.trim() : null,
+    description: enDescription || null,
     status: ProductStatus.DRAFT,
 
     // Media assignments
     thumbnail: primaryThumbnail,
     images: resolvedImages,
-    subtitle: product.title.fr ? product.title.fr.trim() : null,
+    subtitle: frTitle || null,
 
     weight: product.weightGrams
       ? parseFloat(product.weightGrams.toString())
