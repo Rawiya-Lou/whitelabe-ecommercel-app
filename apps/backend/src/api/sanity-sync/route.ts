@@ -8,6 +8,7 @@ import {
   SanityImagePayload,
   SanityRawProductInput,
   SanityRawImageInput,
+  SanityCategoryPayload,
 } from "../../workflows/sanity-sync/types";
 
 export interface SanityRawWebhookReference {
@@ -218,8 +219,7 @@ export async function POST(
   res: MedusaResponse,
 ): Promise<void> {
   const logger = req.scope.resolve(ContainerRegistrationKeys.LOGGER) as Logger;
-  const isTestEnvironment =
-    process.env.NODE_ENV === "test" || process.env.TEST_TYPE !== undefined;
+
   const authToken = req.headers["x-sanity-sync-token"] as string | undefined;
 
   const projectId =
@@ -782,17 +782,47 @@ export async function POST(
       Modules.PRODUCT,
     ) as IProductModuleService;
     // Resolve category references to active Medusa category IDs before product upsert.
-    const categoryIds: string[] = [];
-    if (Array.isArray(cmsProduct.categories)) {
-      for (const category of cmsProduct.categories) {
+    const categoryPayload: SanityCategoryPayload[] = [];
+    const rawCategories = cmsProduct.categories || rawPayload.categories || [];
+    if (Array.isArray(rawCategories)) {
+      for (const rawCategory of rawCategories) {
+        if (!rawCategory) continue;
+        let category = rawCategory;
+        let originalSanityId =
+          typeof category === "string"
+            ? category
+            : (category as any)._ref || (category as any)._id || "";
+
+        if (typeof category === "object") {
+          const targetRef = (category as any)._ref || (category as any)._id;
+          if (targetRef) {
+            let cleanRef = targetRef.replace("drafts.", "");
+            if (cleanRef.startsWith("category-")) {
+              cleanRef = cleanRef.replace("category-", "").replace(/-/g, "_");
+            } else {
+              cleanRef = cleanRef.replace(/-/g, "_");
+            }
+            if ((category as any)._ref) (category as any)._ref = cleanRef;
+            if ((category as any)._id) (category as any)._id = cleanRef;
+          }
+        } else if (typeof category === "string") {
+          let cleanStr = category.replace("drafts.", "");
+          if (cleanStr.startsWith("category-")) {
+            cleanStr = cleanStr.replace("category-", "").replace(/-/g, "_");
+          } else {
+            cleanStr = cleanStr.replace(/-/g, "_");
+          }
+          category = cleanStr;
+        }
         const referenceId = extractCategoryReferenceId(category);
-        let matchedCategory: { id: string; handle: string } | undefined;
+        let matchedCategory:
+          { id: string; handle: string; name?: string } | undefined;
 
         if (referenceId) {
           for (const candidateId of getSanityIdCandidates(referenceId)) {
             const { data: matchedCategories } = await queryEngine.graph({
               entity: "product_category",
-              fields: ["id", "handle"],
+              fields: ["id", "handle", "name"],
               filters: {
                 metadata: {
                   sanity_id: candidateId,
@@ -801,8 +831,17 @@ export async function POST(
                 },
               } as Record<string, unknown>,
             });
-            matchedCategory = matchedCategories?.[0];
-            if (matchedCategory) break;
+            const baseCat = Array.isArray(matchedCategories)
+              ? matchedCategories[0]
+              : undefined;
+            if (baseCat) {
+              matchedCategory = {
+                id: baseCat.id,
+                handle: baseCat.handle as string,
+                name: baseCat.name as string,
+              };
+              break;
+            }
           }
         }
 
@@ -810,10 +849,19 @@ export async function POST(
         if (!matchedCategory && targetSlug) {
           const { data: matchedCategories } = await queryEngine.graph({
             entity: "product_category",
-            fields: ["id", "handle"],
+            fields: ["id", "handle", "name"],
             filters: { handle: [targetSlug] },
           });
-          matchedCategory = matchedCategories?.[0];
+          const baseCat = Array.isArray(matchedCategories)
+            ? matchedCategories[0]
+            : undefined;
+          if (baseCat) {
+            matchedCategory = {
+              id: baseCat.id,
+              handle: baseCat.handle as string,
+              name: baseCat.name as string,
+            };
+          }
         }
 
         if (!matchedCategory && referenceId) {
@@ -826,13 +874,15 @@ export async function POST(
             if (sanityCategory) {
               const { data: matchedCategories } = await queryEngine.graph({
                 entity: "product_category",
-                fields: ["id", "handle"],
+                fields: ["id", "handle", "name"],
                 filters: {
                   handle: [sanityCategory.handle.toLowerCase().trim()],
                 },
               });
 
-              const existingCategory = matchedCategories?.[0];
+              const existingCategory = Array.isArray(matchedCategories)
+                ? matchedCategories[0]
+                : undefined;
               if (existingCategory) {
                 await productModuleService.updateProductCategories(
                   existingCategory.id,
@@ -846,7 +896,11 @@ export async function POST(
                     },
                   },
                 );
-                matchedCategory = existingCategory;
+                matchedCategory = {
+                  id: existingCategory.id,
+                  handle: existingCategory.handle as string,
+                  name: sanityCategory.title,
+                };
               } else {
                 const createdCategories =
                   await productModuleService.createProductCategories([
@@ -861,11 +915,14 @@ export async function POST(
                       },
                     },
                   ]);
-                const createdCategory = createdCategories[0];
+                const createdCategory = Array.isArray(createdCategories)
+                  ? createdCategories[0]
+                  : undefined;
                 if (createdCategory) {
                   matchedCategory = {
                     id: createdCategory.id,
                     handle: createdCategory.handle,
+                    name: createdCategory.name,
                   };
                   logger.info(
                     `[Sanity Sync] Created dependency category [${sanityCategory.id}] as Medusa category [${createdCategory.id}].`,
@@ -880,8 +937,15 @@ export async function POST(
           }
         }
 
-        if (matchedCategory) {
-          categoryIds.push(matchedCategory.id);
+        if (matchedCategory && matchedCategory.id) {
+          categoryPayload.push({
+            id: matchedCategory.id,
+            _id:
+              originalSanityId ||
+              `category-${matchedCategory.id.replace(/_/g, "-")}`,
+            title: matchedCategory.name || "Category",
+            slug: matchedCategory.handle || "",
+          });
         } else {
           logger.warn(
             `[Sanity Sync Guard] Category reference [${referenceId || targetSlug || "<empty>"}] did not resolve to an existing Medusa category.`,
@@ -893,8 +957,12 @@ export async function POST(
     const normalizedSlug =
       extractCategorySlug(cmsProduct.slug)?.toLowerCase().trim() || "";
 
-    const resolvedCategoryIds = [...new Set(categoryIds)];
-    if (resolvedCategoryIds.length === 0) {
+    const resolvedCategoryPayloads = categoryPayload.filter(
+      (payload, index, self) =>
+        self.findIndex((p) => p.id === payload.id) === index,
+    );
+    if (resolvedCategoryPayloads.length === 0) {
+      if (req._releaseSyncLock) req._releaseSyncLock();
       res.status(400).json({
         success: false,
         error:
@@ -935,18 +1003,20 @@ export async function POST(
         is_sync_origin: "sanity",
         updatedBy: "sanity-studio",
       },
-
-      stockCount: cmsProduct.stockCount ?? 0,
       weightGrams: cmsProduct.weightGrams,
       lengthMm: cmsProduct.lengthMm,
       widthMm: cmsProduct.widthMm,
       heightMm: cmsProduct.heightMm,
       originCountry: cmsProduct.originCountry,
-      categories: [],
+      categories: resolvedCategoryPayloads,
       images: mappedImages,
       manage_inventory: cmsProduct.manage_inventory ?? true,
       allow_backorder: cmsProduct.allow_backorder ?? false,
     };
+
+    const resolvedCategoryIds: string[] = resolvedCategoryPayloads.flatMap(
+      (c) => (typeof c.id === "string" ? [c.id] : []),
+    );
 
     const standardizedInput: SanitySyncWorkflowInput = {
       operation: operation as OperationTypes,
