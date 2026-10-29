@@ -78,7 +78,7 @@ export const product = defineType({
           type: "reference",
           to: [{ type: "category" }],
           options: {
-            disableNew: true,
+            disableNew: false,
           },
         },
       ],
@@ -94,24 +94,7 @@ export const product = defineType({
       group: "general",
     }),
 
-    // 2. INVENTORY (Essential for Medusa)
-
-    defineField({
-      name: "manage_inventory",
-      title: "Track Inventory",
-      type: "boolean",
-      initialValue: true,
-      group: "pricing",
-    }),
-
-    defineField({
-      name: "allow_backorder",
-      title: "Allow Backorders",
-      type: "boolean",
-      initialValue: false,
-      group: "pricing",
-      description: "Allow customers to purchase when stock is 0",
-    }),
+  
 
     // 3. LOGISTICS & CUSTOMS
 
@@ -187,7 +170,6 @@ export const product = defineType({
       title: "Product Gallery",
       type: "array",
       description: "Upload product files",
-      validation: (Rule) => Rule.required().min(1),
       of: [
         {
           type: "image",
@@ -226,6 +208,8 @@ export const product = defineType({
       title: "Search Engine Optimization (SEO)",
       type: "object",
       group: "seo",
+      description:
+        "Custom metadata fields to optimize Google search indexing and social sharing appearance.",
       options: {
         collapsed: false,
         collapsible: true,

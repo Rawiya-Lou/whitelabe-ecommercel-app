@@ -2,7 +2,7 @@ import { defineConfig, SanityDocument} from "sanity";
 import { structureTool } from "sanity/structure";
 import { visionTool } from "@sanity/vision";
 import { codeInput } from "@sanity/code-input";
-import uiTranslation from "./schemas/uiTranslation";
+import { uiTranslation } from "./schemas/uiTranslation";
 import { localizedString, localizedText } from "./schemas/localizedObjects";
 import { category } from "./schemas/category";
 import { product } from "./schemas/product";
@@ -20,7 +20,7 @@ export default defineConfig({
   plugins: [
     structureTool(),
     visionTool(),
-    codeInput(), // Required for UI translation JSON code field
+    codeInput(), 
   ],
 
   schema: {
