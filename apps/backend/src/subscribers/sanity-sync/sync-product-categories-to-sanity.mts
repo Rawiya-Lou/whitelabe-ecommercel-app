@@ -2,9 +2,12 @@ import type { SubscriberConfig, SubscriberArgs } from "@medusajs/framework";
 import type { Logger, IProductModuleService } from "@medusajs/framework/types";
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils";
 import { createClient } from "@sanity/client";
-import { SanityLocalizedString, SanityOpenGraphImage, SanitySEOPayload } from "../../workflows/sanity-sync/types";
-import { syncLock } from "../../utils/sync-lock";
-
+import {
+  SanityLocalizedString,
+  SanityOpenGraphImage,
+  SanitySEOPayload,
+} from "../../workflows/sanity-sync/types.js";
+import { syncLock } from "../../utils/sync-lock.js";
 
 interface ProductCategoryLinkPayload {
   id?: string;
@@ -74,7 +77,6 @@ export default async function syncProductCategoriesToSanity({
   const product = products?.[0];
   if (!product) return;
 
-
   const sanityClient = createClient({
     projectId: projectId,
     dataset: dataset,
@@ -83,11 +85,7 @@ export default async function syncProductCategoriesToSanity({
     useCdn: false,
   });
 
-    const defaultVariant = product.variants?.[0] || {};
-
- 
-  
-  
+  const defaultVariant = product.variants?.[0] || {};
 
   const productMetadata = (product.metadata ?? {}) as Record<string, any>;
   const sanityProductId = productMetadata.sanity_id as string;
@@ -206,10 +204,11 @@ export default async function syncProductCategoriesToSanity({
     product.origin_country ||
     defaultVariant.origin_country ||
     productMetadata.originCountry ||
-    "DZ";    
-  const resolvedCountry = String(rawCountry).trim().toUpperCase().slice(0, 2);  
+    "DZ";
+  const resolvedCountry = String(rawCountry).trim().toUpperCase().slice(0, 2);
 
-  const rawHighlights = productMetadata.highlights || existingSanityProduct?.highlights || [];
+  const rawHighlights =
+    productMetadata.highlights || existingSanityProduct?.highlights || [];
   let formattedHighlights: any[] = [];
 
   if (Array.isArray(rawHighlights)) {
@@ -221,7 +220,8 @@ export default async function syncProductCategoriesToSanity({
       ar: hl.ar || "",
     }));
   }
-  const rawSeo: SanitySEOPayload = productMetadata.seo || existingSanityProduct?.seo || {};
+  const rawSeo: SanitySEOPayload =
+    productMetadata.seo || existingSanityProduct?.seo || {};
   const ogAssetRef =
     rawSeo.openGraphImage?.assetId ||
     rawSeo.openGraphImage?.asset?._ref ||
@@ -233,13 +233,13 @@ export default async function syncProductCategoriesToSanity({
       en: rawSeo.metaTitle?.en || "",
       fr: rawSeo.metaTitle?.fr || "",
       ar: rawSeo.metaTitle?.ar || "",
-    } as  SanityLocalizedString & { _type: string },
+    } as SanityLocalizedString & { _type: string },
     metaDescription: {
       _type: "localizedText",
       en: rawSeo.metaDescription?.en || "",
       fr: rawSeo.metaDescription?.fr || "",
       ar: rawSeo.metaDescription?.ar || "",
-    } as  SanityLocalizedString & { _type: string },
+    } as SanityLocalizedString & { _type: string },
     keywords: Array.isArray(rawSeo.keywords) ? rawSeo.keywords : [],
   };
 
@@ -293,14 +293,12 @@ export default async function syncProductCategoriesToSanity({
         fr: {
           title: product.subtitle || currentMetaTranslations.fr?.title || "",
           description: currentMetaTranslations.fr?.description || "",
-          material:
-            currentMetaTranslations.fr?.material || "",
+          material: currentMetaTranslations.fr?.material || "",
         },
         ar: {
           title: currentMetaTranslations.ar?.title || "",
           description: currentMetaTranslations.ar?.description || "",
-          material:
-            currentMetaTranslations.ar?.material || "",
+          material: currentMetaTranslations.ar?.material || "",
         },
       },
       title_en: product.title || productMetadata.title_en,
@@ -430,11 +428,18 @@ export default async function syncProductCategoriesToSanity({
     patchSet.highlights = formattedHighlights;
   }
 
-  if (formattedSeo?.metaTitle?.en || formattedSeo?.metaDescription?.en || ogAssetRef || formattedSeo?.keywords ) {
+  if (
+    formattedSeo?.metaTitle?.en ||
+    formattedSeo?.metaDescription?.en ||
+    ogAssetRef ||
+    formattedSeo?.keywords
+  ) {
     patchSet.seo = formattedSeo;
   }
 
-  logger.info(`[DEBUG]: in the subscriber the patchSet ${JSON.stringify(patchSet, null, 2)}`)
+  logger.info(
+    `[DEBUG]: in the subscriber the patchSet ${JSON.stringify(patchSet, null, 2)}`,
+  );
 
   const mutationPayload = {
     mutations: [
@@ -453,8 +458,9 @@ export default async function syncProductCategoriesToSanity({
     ],
   };
 
-    logger.info(`[DEBUG]: in the subscriber the mutationPayload ${JSON.stringify(mutationPayload, null, 2)}`)
-
+  logger.info(
+    `[DEBUG]: in the subscriber the mutationPayload ${JSON.stringify(mutationPayload, null, 2)}`,
+  );
 
   try {
     const response = await fetch(mutationUrl, {

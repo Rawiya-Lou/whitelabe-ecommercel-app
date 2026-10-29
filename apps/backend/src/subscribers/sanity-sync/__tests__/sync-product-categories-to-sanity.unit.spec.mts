@@ -19,8 +19,8 @@ vi.mock("../../../utils/sync-lock", () => ({
   },
 }));
 
-import { syncLock } from "../../../utils/sync-lock";
-import syncProductCategoriesToSanity from "../sync-product-categories-to-sanity";
+import { syncLock } from "../../../utils/sync-lock.js";
+import syncProductCategoriesToSanity from "../sync-product-categories-to-sanity.mjs";
 
 describe("syncProductCategoriesToSanity Subscriber", () => {
   const originalEnv = process.env;
@@ -160,16 +160,17 @@ describe("syncProductCategoriesToSanity Subscriber", () => {
             en: {
               title: "Lajavel Perfume",
               description: "Artisanal citrus fragrance.",
-              material: "Organic Alcohol & Oils"
-              
+              material: "Organic Alcohol & Oils",
             },
             fr: {
               title: "Parfum Lajavel",
               description: "Parfum artisanal aux agrumes.",
-              material: ""
+              material: "",
             },
-            ar: { title: "عطر لاجافيل", description: "عطر حمضيات حرفي" ,
-              material: ""
+            ar: {
+              title: "عطر لاجافيل",
+              description: "عطر حمضيات حرفي",
+              material: "",
             },
           },
         },
@@ -209,9 +210,11 @@ describe("syncProductCategoriesToSanity Subscriber", () => {
       // Inspect mutation payload
       const requestCall = mockFetch.mock.calls[0];
       const payload = JSON.parse(requestCall[1].body);
-      const createOp = payload.mutations.find((m: any) => m.createIfNotExists)?.createIfNotExists;
-expect(createOp).toBeDefined();
-expect(createOp._id).toBe("4a21732e-sanity-uuid");
+      const createOp = payload.mutations.find(
+        (m: any) => m.createIfNotExists,
+      )?.createIfNotExists;
+      expect(createOp).toBeDefined();
+      expect(createOp._id).toBe("4a21732e-sanity-uuid");
       const patch = payload.mutations[1].patch;
 
       expect(patch.id).toBe("4a21732e-sanity-uuid");
@@ -230,7 +233,7 @@ expect(createOp._id).toBe("4a21732e-sanity-uuid");
 
       // Logistics & Customs
       expect(patch.set.originCountry).toBe("DZ");
-      expect(patch.set.tags).toEqual(["Luxury",  "Organic"]);
+      expect(patch.set.tags).toEqual(["Luxury", "Organic"]);
 
       // Categories
       expect(patch.set.categories).toEqual([
@@ -254,9 +257,17 @@ expect(createOp._id).toBe("4a21732e-sanity-uuid");
         metadata: {
           sanity_id: "sanity-doc-123",
           translations: {
-            en: { title: "Old Title", description: "Old Description", material: "" },
-            fr: { title: "Ancien Titre", description: "Ancienne Description",  material: "" },
-            ar: { title: "عنوان قديم", description: "وصف قديم",  material: "" },
+            en: {
+              title: "Old Title",
+              description: "Old Description",
+              material: "",
+            },
+            fr: {
+              title: "Ancien Titre",
+              description: "Ancienne Description",
+              material: "",
+            },
+            ar: { title: "عنوان قديم", description: "وصف قديم", material: "" },
           },
         },
         categories: [],
@@ -285,17 +296,17 @@ expect(createOp._id).toBe("4a21732e-sanity-uuid");
               en: {
                 title: "New Admin Title",
                 description: "New Admin Description",
-                material: ""
+                material: "",
               },
               fr: {
                 title: "Nouveau Titre Admin",
                 description: "Ancienne Description",
-                material: ""
+                material: "",
               },
               ar: {
                 title: "عنوان قديم",
                 description: "وصف قديم",
-                material: ""
+                material: "",
               },
             }),
             title_en: "New Admin Title",
