@@ -1,9 +1,24 @@
 import { HttpTypes } from "@medusajs/framework/types";
 
 export interface SanityLocalizedString {
-  en: string;
+  en?: string;
   fr?: string;
   ar?: string;
+}
+export interface SanityOpenGraphImage {
+  url?: string;
+  assetId?: string;
+  asset?: {
+    _type: "reference";
+    _ref: string;
+  };
+}
+
+export interface SanitySEOPayload {
+  metaTitle?: { en?: string; fr?: string; ar?: string };
+  metaDescription?: { en?: string; fr?: string; ar?: string };
+  keywords?: string[];
+  openGraphImage?: SanityOpenGraphImage;
 }
 
 export interface SanityCategoryPayload extends Partial<HttpTypes.AdminProductCategory> {
@@ -14,19 +29,27 @@ export interface SanityCategoryPayload extends Partial<HttpTypes.AdminProductCat
 
 export interface SanityImagePayload extends Partial<HttpTypes.AdminProductImage> {
   url: string;
-  altText?: string;
+  _key: string;
+  _type?: string;
+  id?: string;
+  asset?: {
+    _type: string;
+    _ref: string;
+  };
+  alt?: string; // Clear string primitive required by Medusa API routes & custom mappers
+  alt_en?: string; // Custom fields matching your Sanity Studio Schema defineField setup
+  alt_fr?: string;
+  alt_ar?: string;
 }
 
 export interface SanityRawImageInput {
   _type?: string;
   asset?: {
     _ref?: string;
-    _id?: string;
-    url?: string;
     [key: string]: unknown;
   };
+  _key?: string;
   url?: string;
-  alt?: string;
   alt_en?: string;
   alt_fr?: string;
   alt_ar?: string;
@@ -44,24 +67,41 @@ export interface SanityRawCategoryInput {
 
 export interface SanityProductPayload {
   _id: string;
-  title: SanityLocalizedString;
-  description: SanityLocalizedString;
+  title: string | SanityLocalizedString;
+  description?: string | SanityLocalizedString;
+  subtitle?: string;
+  material?: string | SanityLocalizedString; 
   slug: string;
   basePriceDzd?: number;
   basePriceEur?: number;
   basePriceUsd?: number;
   thumbnail?: string;
   images?: SanityImagePayload[];
+  seoTitle?: string;
+  barcode?: string | null;
+  seoDescription?:string;
+  tags?: string[];
+  highlights?: [];
+  hsCode?: string; 
+  midCode?: string;
+  productType?: string;
+  seo?: SanitySEOPayload;
   weightGrams?: number;
   lengthMm?: number;
   widthMm?: number;
   heightMm?: number;
   originCountry?: string;
   stockCount?: number;
-  metadata: Record<string, string> & { sanity_id: string; is_sync_origin: "sanity" };
+  metadata: Record<string, unknown> & { sanity_id: string; is_sync_origin: "sanity" };
   categories: SanityCategoryPayload[];
   manage_inventory?: boolean;
   allow_backorder?: boolean;
+  inspection?: {
+    productId?: string;
+    variantId?: string;
+    inventoryItemId?: string;
+  };
+  resolvedCategoryIds?: string[];
 }
 
 export interface SanityRawProductInput extends Omit<  
@@ -79,7 +119,7 @@ export interface SanityRawProductInput extends Omit<
   lengthMm?: number,
   widthMm?: number,
   heightMm?: number,
-  _updatedBy?: string;
+  updatedBy?: string;
   images?: SanityRawImageInput[];
   categories?: (SanityRawCategoryInput | string)[];
 }
@@ -87,7 +127,7 @@ export interface SanityRawProductInput extends Omit<
 export interface SanitySyncWorkflowInput {
   operation: "create" | "update" | "delete" | "batch";
   documentType: "category" | "product";
-  productData?: SanityProductPayload;
+  productData: SanityProductPayload;
   batchProducts?: SanityProductPayload[];
   categoryIds?: string[];
   deletionTargetId?: string;
@@ -134,13 +174,17 @@ export interface CreateFreshInventoryOutput {
   wasCreated: boolean;
 }
 
+
 export interface LinkVariantInventoryInput {
   variantId: string;
   inventoryItemId: string;
-  stockLocationId: string;
-  stockedQuantity: number;
-  shouldLink: boolean;
+  stockLocationId?: string;
+  stockedQuantity?: number;
+  shouldLink?: boolean;
+  sku: string;
 }
+
+
 
 export interface WorkflowPriceDTO extends Partial<HttpTypes.AdminPrice> {
   currency_code: string;
@@ -154,6 +198,7 @@ export interface WorkflowVariantDTO extends Omit<
   id: string;
   sku: string;
   prices?: WorkflowPriceDTO[];
+  thumbnail?: string
 }
 
 export interface WorkflowProductDTO extends Omit<

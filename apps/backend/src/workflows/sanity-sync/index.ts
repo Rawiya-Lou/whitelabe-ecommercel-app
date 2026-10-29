@@ -7,9 +7,17 @@ import {
 import {
   createProductsWorkflow,
   updateProductsWorkflow,
+  UpdateProductWorkflowInput,
 } from "@medusajs/medusa/core-flows";
-import { SanitySyncWorkflowInput, SyncWorkflowResult } from "./types";
-
+import {
+  SanitySyncWorkflowInput,
+  SyncWorkflowResult,
+  ProductInspectionDTO,
+  SystemDefaultsDTO,
+  CreateFreshInventoryInput,
+  LinkVariantInventoryInput,
+  SanityProductPayload,
+} from "./types";
 import { getSystemDefaultsStep } from "./steps/system-defaults";
 import { inspectExistingProductStep } from "./steps/inspect-existing-product";
 import { linkVariantToInventoryStep } from "./steps/link-variant-to-inventory";
@@ -20,14 +28,39 @@ import { deleteCatalogItemStep } from "./steps/delete-catalog-item";
 import { mapSanityToMedusaProduct } from "./utils/mappers";
 import "./hooks/before-product-delete";
 import "./hooks/before-category-delete";
-import "./hooks/on-product-mutation";
-import "./hooks/on-category-mutation";
+// import "./hooks/on-product-mutation";
+// import "./hooks/on-category-mutation";
+
+interface UpdateBranchTransformInput {
+  input: SanitySyncWorkflowInput;
+  inspection: ProductInspectionDTO;
+  resolvedCategoryIds: string[];
+}
+
+interface InventoryBranchTransformInput {
+  inspection: ProductInspectionDTO;
+  variantSku: string;
+  input: {
+    productData: SanityProductPayload;
+  };
+  systemDefaults: SystemDefaultsDTO;
+}
+
+interface LinkageBranchTransformInput {
+  inspection: ProductInspectionDTO;
+  inventorySyncResult: { inventoryItemId: string };
+  systemDefaults: SystemDefaultsDTO;
+  input: {
+    productData: SanityProductPayload;
+  };
+  variantSku: string;
+}
 
 export const sanitySyncProductWorkflow = createWorkflow(
   "sanity-sync-product",
   (input: SanitySyncWorkflowInput): WorkflowResponse<SyncWorkflowResult> => {
     const systemDefaults = getSystemDefaultsStep();
-    // LAYER 1: HIGH-VOLUME BATCH SYNCHRONIZATION
+
     const isBatchOp = transform(
       { input },
       (data) => data.input.operation === "batch",
@@ -63,8 +96,6 @@ export const sanitySyncProductWorkflow = createWorkflow(
       },
     );
 
-    // LAYER 2: SECURE CASCADE DELETION ENGINE
-
     const isDeleteOp = transform(
       { input },
       (data) => data.input.operation === "delete",
@@ -90,8 +121,6 @@ export const sanitySyncProductWorkflow = createWorkflow(
       (data) =>
         data.input.operation === "create" || data.input.operation === "update",
     );
-
-    // LAYER 3: SINGLE RECORD INGESTION PIPELINE (UPSERT GRAPH)
 
     const rawCategories = transform({ input, isSingleUpsert }, (data) =>
       data.isSingleUpsert ? (data.input.productData?.categories ?? []) : [],
@@ -130,7 +159,6 @@ export const sanitySyncProductWorkflow = createWorkflow(
 
     const inspection = inspectExistingProductStep(lookupParams);
 
-    // THE PRODUCT ALREADY EXISTS (PURE UPDATE PATH)
     const isUpdateOp = transform(
       { inspection, input, isSingleUpsert },
       (data) => Boolean(data.isSingleUpsert && data.inspection.productExists),
@@ -138,58 +166,154 @@ export const sanitySyncProductWorkflow = createWorkflow(
 
     when("product-exists-update-branch", isUpdateOp, (cond) => cond).then(
       () => {
-        const updatePayload = transform(
-          { input, inspection, resolvedCategoryIds },
-          (data) => ({
+        const updatePayload = transform<
+          UpdateBranchTransformInput,
+          UpdateProductWorkflowInput
+        >({ input, inspection, resolvedCategoryIds }, (data) => {
+          const prodData =
+            (data.input.productData as Record<string, any>) || {};
+          const incomingMeta = (prodData.metadata as Record<string, any>) || {};
+          const incomingTranslations =
+            (incomingMeta.translations as Record<string, any>) || {};
+          const resolveLang = (
+            field: any,
+            metaKey: string,
+            lang: string,
+          ): string => {
+            if (field && typeof field === "object" && field[lang]) {
+              return String(field[lang]).trim();
+            }
+            if (incomingMeta[`${metaKey}_${lang}`]) {
+              return String(incomingMeta[`${metaKey}_${lang}`]).trim();
+            }
+            if (incomingTranslations[lang]?.[metaKey]) {
+              return String(incomingTranslations[lang][metaKey]).trim();
+            }
+            if (lang === "en" && typeof field === "string") {
+              return field.trim();
+            }
+            return "";
+          };
+
+          const strTitleEn =
+            resolveLang(prodData.title, "title", "en") || "Updated Product";
+          const strTitleFr = resolveLang(prodData.title, "title", "fr");
+          const strTitleAr = resolveLang(prodData.title, "title", "ar");
+
+          const strDescEn = resolveLang(
+            prodData.description,
+            "description",
+            "en",
+          );
+          const strDescFr = resolveLang(
+            prodData.description,
+            "description",
+            "fr",
+          );
+          const strDescAr = resolveLang(
+            prodData.description,
+            "description",
+            "ar",
+          );
+
+          const compiledImageMetadata = (prodData.images ?? []).map(
+            (img: any, index: number) => ({
+              url: img.url,
+              sanity_asset_id: img.asset?._ref || img._key || `img_${index}`,
+              alt: {
+                en: img.alt_en || img.alt || "Product image",
+                fr: img.alt_fr || "",
+                ar: img.alt_ar || "",
+              },
+            }),
+          );
+
+          const realSanityId =
+            prodData._id ||
+            incomingMeta.sanity_id ||
+            data.input.productData?._id ||
+            data.inspection.productId!;
+
+          return {
             products: [
               {
                 id: data.inspection.productId!,
-                title: data.input.productData!.title.en,
-                description: data.input.productData!.description.en,
+                title: strTitleEn,
+                subtitle: strTitleFr || null,
+                description: strDescEn || null,
                 weight: data.input.productData!.weightGrams ?? 0,
                 thumbnail: data.input.productData!.images?.[0]?.url,
-                images: (data.input.productData!.images ?? []).map((image) => ({
+                images: (prodData.images ?? []).map((image: any) => ({
                   url: image.url,
-                  alt: image.altText || "Product image",
                 })),
-                categories: data.resolvedCategoryIds.map((id) => ({ id })),
+                categories: data.resolvedCategoryIds.map((id: string) => ({
+                  id,
+                })),
                 variants: [
                   {
                     id: data.inspection.variantId!,
-                    prices: [],
                   },
                 ],
+                metadata: {
+                  ...incomingMeta,
+                  sanity_id: realSanityId,
+                  is_sync_origin: "sanity",
+                  updatedBy: "sanity-studio",
+                  translations: {
+                    en: { title: strTitleEn, description: strDescEn },
+                    fr: { title: strTitleFr, description: strDescFr },
+                    ar: { title: strTitleAr, description: strDescAr },
+                  },
+                  title_en: strTitleEn,
+                  title_fr: strTitleFr,
+                  title_ar: strTitleAr,
+                  description_en: strDescEn,
+                  description_fr: strDescFr,
+                  description_ar: strDescAr,
+                  image_metadata: compiledImageMetadata,
+                },
               },
             ],
-          }),
-        );
+          };
+        });
 
-        // Core Metadata Property Alterations
         updateProductsWorkflow.runAsStep({ input: updatePayload });
 
-        // Provision and verify inventory allocations idempotently up front
-        const freshInventoryParams = transform(
+        // Inventory provisioning and linkage
+        const freshInventoryParams = transform<
+          InventoryBranchTransformInput,
+          CreateFreshInventoryInput
+        >(
           { inspection, variantSku: variantSkuToken, input, systemDefaults },
-          (data) => ({
-            inventoryItemExists: true,
-            preexistingInventoryItemId: data.inspection.inventoryItemId ?? "",
-            sku: data.variantSku,
-            title: `${data.input.productData?.title?.en ?? "CMS Asset"} Inventory`,
-            stockLocationId: data.systemDefaults.stockLocationId ?? "",
-            quantity: data.input.productData?.stockCount ?? 0,
-            originCountry: data.input.productData?.originCountry,
-          }),
+          (data) => {
+            const prodData = data.input.productData || ({} as any);
+            const inventoryTitle =
+              typeof prodData.title === "string"
+                ? prodData.title
+                : String(prodData.title?.en || "CMS Asset");
+
+            return {
+              inventoryItemExists: true,
+              preexistingInventoryItemId: data.inspection.inventoryItemId ?? "",
+              sku: data.variantSku,
+              title: `${inventoryTitle} Inventory`,
+              stockLocationId: data.systemDefaults.stockLocationId ?? "",
+              quantity: prodData.stockCount ?? 0,
+              originCountry: prodData.originCountry || undefined,
+            };
+          },
         );
 
-        //Configured with a unique step name mapping key signature
         const inventorySyncResult = createFreshInventoryStep(
           freshInventoryParams,
         ).config({
           name: "update-lane-inventory-provisioning",
         });
 
-        // Link records dynamically using structural lookup hooks
-        const workflowWiringPayload = transform(
+        const workflowWiringPayload = transform<
+          LinkageBranchTransformInput,
+          LinkVariantInventoryInput
+        >(
           {
             inspection,
             inventorySyncResult,
@@ -207,17 +331,16 @@ export const sanitySyncProductWorkflow = createWorkflow(
           }),
         );
 
-        // Configured with a unique step name mapping key signature
         linkVariantToInventoryStep(workflowWiringPayload).config({
           name: "update-lane-relationship-linkage",
         });
       },
     );
 
-    // THE PRODUCT IS ABSENT (PURE CREATION PATH)
     const isCreateOp = transform({ inspection, isSingleUpsert }, (data) =>
       Boolean(data.isSingleUpsert && !data.inspection.productExists),
     );
+
     when("product-absent-creation-branch", isCreateOp, (cond) => cond).then(
       () => {
         const createPayload = transform(
@@ -236,8 +359,7 @@ export const sanitySyncProductWorkflow = createWorkflow(
           },
         );
 
-        // Spawns Product entries inside core engine tables cleanly (WITHOUT SKU to prevent internal workflow crashes)
-        const createdProducts = createProductsWorkflow.runAsStep({
+        createProductsWorkflow.runAsStep({
           input: createPayload,
         });
       },
@@ -251,7 +373,7 @@ export const sanitySyncProductWorkflow = createWorkflow(
             ? ("batched" as const)
             : data.input.operation === "delete"
               ? ("deleted" as const)
-              : data.inspection.productExists
+              : data.inspection?.productExists
                 ? ("updated" as const)
                 : ("created" as const),
       })),

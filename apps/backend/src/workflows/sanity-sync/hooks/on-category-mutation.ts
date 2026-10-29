@@ -19,16 +19,6 @@ const handleCategoryMutation = async (
   actionType: "create" | "update",
 ): Promise<void> => {
   const logger = container.resolve(ContainerRegistrationKeys.LOGGER) as Logger;
-  const isTestEnvironment = 
-    process.env.NODE_ENV === "test" || 
-    process.env.TEST_TYPE !== undefined ||
-    typeof (global as any).it === "function";
-
-  // Safely return early if it's a Vitest worker run to stop the Redis-less ping-pong deadlock
-  if (isTestEnvironment) {
-    logger.info(`[Sanity Hook Shield] Synchronous test execution detected. Bypassing reverse hook mutation to maintain database connection stability.`);
-    return;
-  }
   const sanityToken = process.env.SANITY_API_TOKEN;
   const projectId =
     process.env.SANITY_PROJECT_ID ||
@@ -49,7 +39,6 @@ const handleCategoryMutation = async (
   for (const category of categories) {
     const metadata = (category.metadata || {}) as Record<string, unknown>;
 
-    // INFINITE LOOP GUARD: Stop execution if change originated via a Sanity webhook sync step
     if (metadata.is_sync_origin === "sanity") {
       logger.info(
         `[Sanity Guard] Category loop blocked for [${category.name}]. Loop avoided.`,
@@ -75,7 +64,7 @@ const handleCategoryMutation = async (
             _id: sanityId,
             _type: "category",
             title: localizedTitle,
-            _updatedBy: "medusa",
+            updatedBy: "medusa",
             slug: {
               _type: "slug",
               current:
@@ -88,18 +77,12 @@ const handleCategoryMutation = async (
     } else if (actionType === "update") {
       mutations = [
         {
-          patch: {
-            id: sanityId,
-            set: {
-              title: localizedTitle,
-              _updatedBy: "medusa",
-            },
-          },
-        },
-        {
-          patch: {
-            id: sanityId,
-            unset: ["_updatedBy"],
+          createOrReplace: {
+            _id: (metadata.sanity_id as string) || category.id,
+            _type: "category",
+            title: { _type: "localizedString", en: category.name },
+            updatedBy: "medusa",
+            slug: { _type: "slug", current: category.handle || category.id },
           },
         },
       ];
@@ -135,7 +118,6 @@ const handleCategoryMutation = async (
 
 createProductCategoriesWorkflow.hooks.categoriesCreated(
   async ({ categories }, { container }) => {
-    // Asserting as SafeSyncCategory[] cleanly matches internal ProductCategoryDTO maps
     await handleCategoryMutation(
       categories as SafeSyncCategory[],
       container as any,
@@ -145,10 +127,8 @@ createProductCategoriesWorkflow.hooks.categoriesCreated(
   },
 );
 
-// Bind cleanly into Medusa's category updating core flow
 updateProductCategoriesWorkflow.hooks.categoriesUpdated(
   async ({ categories }, { container }) => {
-    // Asserting as SafeSyncCategory[] cleanly matches internal ProductCategoryDTO maps
     await handleCategoryMutation(
       categories as SafeSyncCategory[],
       container as any,

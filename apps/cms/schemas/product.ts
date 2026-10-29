@@ -1,33 +1,41 @@
 import { defineType, defineField } from "sanity";
-import { BasketIcon } from "@sanity/icons/Basket"; // Visual anchor for the studio sidebar
+import { BasketIcon } from "@sanity/icons/Basket";
 
 export const product = defineType({
   name: "product",
   title: "Products Catalog",
   type: "document",
   icon: BasketIcon,
+  groups: [
+    { name: "general", title: "General Info", default: true },
+    { name: "pricing", title: "Pricing & Stock" },
+    { name: "media", title: "Media" },
+    { name: "logistics", title: "Shipping & Customs" },
+    { name: "marketing", title: "Marketing & PDP" },
+    { name: "seo", title: "SEO" },
+  ],
   fields: [
-    // HIDDEN TRACKING FIELD: Automatically links Sanity data to Medusa's database engine
     defineField({
       name: "medusaId",
       title: "Medusa System Product ID Reference",
       type: "string",
-      readOnly: true, // Prevents business owners from accidentally editing this system token
-      hidden: ({ document }) => !document?.medusaId, // Only visible once Medusa writes back
+      readOnly: true,
+      hidden: ({ document }) => !document?.medusaId,
+      group: "general",
     }),
 
-    // SYNC TRACKING FIELD: Prevents bi-directional webhook feedback lag loops
     defineField({
       name: "updatedBy",
       title: "Last Sync Origin Provider",
       type: "string",
-      hidden: true, // Completely hidden from Content Editors in the Studio UI
+      hidden: true,
     }),
 
     defineField({
       name: "title",
       title: "Product Title",
       type: "localizedString",
+      group: "general",
       validation: (Rule) => Rule.required(),
     }),
 
@@ -36,54 +44,150 @@ export const product = defineType({
       title: "Unique Handle / Slug",
       type: "slug",
       options: {
-        source: "title.en", // Fallback slug tracking from the base English text input string
+        source: "title.en",
         maxLength: 96,
       },
+      group: "general",
       validation: (Rule) => Rule.required(),
     }),
 
     defineField({
       name: "description",
       title: "Product Description",
-      type: "localizedText", // Localized text object translation area
+      type: "localizedText",
+      group: "general",
     }),
 
     defineField({
-      name: "weightGrams",
-      title: "Product Weight (Grams)",
-      type: "number",
-      initialValue: 0,
-    }),
-
-    defineField({
-      name: "lengthMm",
-      title: "Product Length (Millimeters)",
-      type: "number",
+      name: "productType",
+      title: "Product Type",
+      type: "string",
+      description: "e.g., Perfume, Handbag, Ceramic Plate",
+      group: "general",
     }),
 
     defineField({
       name: "categories",
       title: "Product Categories",
       type: "array",
-      description:
-        "Select all categories this product belongs to. You can add another category here or via Medusa Sync.",
-      validation: (Rule) => Rule.required(),
+      group: "general",
+      description: "Select all categories this product belongs to.",
+      validation: (Rule) => Rule.required().min(1),
       of: [
         {
           type: "reference",
           to: [{ type: "category" }],
           options: {
-            disableNew: true, // Forces user sync consistency, avoiding mutation race conditions
+            disableNew: true,
           },
         },
       ],
     }),
 
     defineField({
+      name: "tags",
+      title: "Tags",
+      type: "array",
+      of: [{ type: "string" }],
+      options: { layout: "tags" },
+      description: "e.g., New Arrival, Organic, Luxury, Traditional",
+      group: "general",
+    }),
+
+    // 2. INVENTORY (Essential for Medusa)
+
+    defineField({
+      name: "manage_inventory",
+      title: "Track Inventory",
+      type: "boolean",
+      initialValue: true,
+      group: "pricing",
+    }),
+
+    defineField({
+      name: "allow_backorder",
+      title: "Allow Backorders",
+      type: "boolean",
+      initialValue: false,
+      group: "pricing",
+      description: "Allow customers to purchase when stock is 0",
+    }),
+
+    // 3. LOGISTICS & CUSTOMS
+
+    defineField({
+      name: "material",
+      title: "Material / Composition",
+      type: "localizedString",
+      description: "e.g., 100% Linen, Ceramic, Pure Wool",
+      group: "logistics",
+    }),
+
+    defineField({
+      name: "originCountry",
+      title: "Country of Origin",
+      type: "string",
+      description:
+        "2-letter ISO code: DZ (Algeria), FR (France), IT (Italy), TR (Turkey)",
+      initialValue: "DZ",
+      validation: (Rule) =>
+        Rule.max(2)
+          .uppercase()
+          .error(
+            "Must be a valid 2-letter uppercase ISO country code (e.g. DZ, FR)",
+          ),
+      group: "logistics",
+    }),
+
+    // defineField({
+    //   name: "weightGrams",
+    //   title: "Product Weight (Grams)",
+    //   type: "number",
+    //   initialValue: 0,
+    //   group: "logistics",
+    // }),
+
+    // defineField({
+    //   name: "lengthMm",
+    //   title: "Product Length (mm)",
+    //   type: "number",
+    //   group: "logistics",
+    // }),
+
+    // defineField({
+    //   name: "widthMm",
+    //   title: "Product Width (mm)",
+    //   type: "number",
+    //   group: "logistics",
+    // }),
+
+    // defineField({
+    //   name: "heightMm",
+    //   title: "Product Height (mm)",
+    //   type: "number",
+    //   group: "logistics",
+    // }),
+
+    // 4. MARKETING & PDP FEATURES
+
+    defineField({
+      name: "highlights",
+      title: "Key Selling Highlights",
+      type: "array",
+      of: [{ type: "localizedString" }],
+      description:
+        "Short bullet points for PDP (e.g., 'Handcrafted in Algiers', 'Water-resistant')",
+      group: "marketing",
+    }),
+
+    // 5. MEDIA
+
+    defineField({
       name: "images",
-      title: "Product Images",
+      title: "Product Gallery",
       type: "array",
       description: "Upload product files",
+      validation: (Rule) => Rule.required().min(1),
       of: [
         {
           type: "image",
@@ -94,7 +198,7 @@ export const product = defineType({
             {
               name: "alt_en",
               type: "string",
-              title: "Alternative Text Description (SEO & Accessibility)",
+              title: "Alt Text (English - Required)",
               validation: (Rule) => Rule.required(),
             },
             {
@@ -112,39 +216,41 @@ export const product = defineType({
           ],
         },
       ],
+      group: "media",
     }),
+
+    // 6. SEO & SOCIAL SHARING (Consolidated)
 
     defineField({
       name: "seo",
       title: "Search Engine Optimization (SEO)",
       type: "object",
-      description:
-        "Custom metadata fields to optimize Google search indexing and social sharing appearance.",
+      group: "seo",
       options: {
-        collapsed: true,
+        collapsed: false,
         collapsible: true,
       },
       fields: [
         defineField({
           name: "metaTitle",
           title: "Meta Title",
-          type: "localizedString", // Aligned with your existing multilingual system
+          type: "localizedString",
           description:
-            "Ideally between 50–60 characters. Defaults to Product Title if left blank.",
+            "Ideally between 50–60 characters. Defaults to Product Title if blank.",
         }),
         defineField({
           name: "metaDescription",
           title: "Meta Description",
-          type: "localizedText", // Matches your paragraph translation blocks
+          type: "localizedText",
           description:
-            "Ideally between 150–160 characters. Summarize the product hook for search results.",
+            "Ideally between 150–160 characters. Summarize the product hook.",
         }),
         defineField({
           name: "openGraphImage",
           title: "Social Share Image (Open Graph)",
           type: "image",
           description:
-            "Custom thumbnail used when this product link is shared on WhatsApp, Facebook, or X.",
+            "Custom preview when link is shared on WhatsApp, Facebook, or X.",
           options: {
             hotspot: true,
           },
@@ -155,19 +261,29 @@ export const product = defineType({
           type: "array",
           of: [{ type: "string" }],
           description:
-            "Comma-separated search phrases (e.g., 'organic', 'handmade', 'algeria').",
+            "Search phrases (e.g., 'organic', 'handmade', 'artisan').",
         }),
       ],
     }),
   ],
 
+  // Studio List Preview (Fallback to Arabic if English is absent)
   preview: {
-    select: { title: "title.en", subtitle: "title.fr", media: "images.0" },
+    select: {
+      titleEn: "title.en",
+      titleFr: "title.fr",
+      titleAr: "title.ar",
+      media: "images.0",
+    },
     prepare(selection) {
-      const { title, subtitle, media } = selection;
+      const { titleEn, titleFr, titleAr, media } = selection;
+      const primaryTitle = titleEn || titleFr || titleAr || "Untitled Product";
+      const secondaryTitle =
+        titleFr && titleFr !== primaryTitle ? `FR: ${titleFr}` : undefined;
+
       return {
-        title: title || "Untitled Product",
-        subtitle: subtitle ? `FR: ${subtitle}` : undefined,
+        title: primaryTitle,
+        subtitle: secondaryTitle,
         media: media,
       };
     },

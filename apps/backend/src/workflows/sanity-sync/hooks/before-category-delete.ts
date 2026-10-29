@@ -9,17 +9,6 @@ deleteProductCategoriesWorkflow.hooks.categoriesDeleted(
     const logger = container.resolve(
       ContainerRegistrationKeys.LOGGER,
     ) as Logger;
-
-    const isTestEnvironment = 
-    process.env.NODE_ENV === "test" || 
-    process.env.TEST_TYPE !== undefined ||
-    typeof (global as any).it === "function";
-
-  // Safely return early if it's a Vitest worker run to stop the Redis-less ping-pong deadlock
-  if (isTestEnvironment) {
-    logger.info(`[Sanity Hook Shield] Synchronous test execution detected. Bypassing reverse hook mutation to maintain database connection stability.`);
-    return;
-  }
     const productService = container.resolve(
       Modules.PRODUCT,
     ) as IProductModuleService;

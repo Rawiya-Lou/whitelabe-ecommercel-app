@@ -23,10 +23,11 @@ interface BatchSyncResult {
   inventoryLinked: number;
   failures: { id: string; error: string }[];
 }
+
 interface InjectedDependencies {
   [Modules.PRODUCT]: IProductModuleService;
   [Modules.INVENTORY]: IInventoryService;
-  remoteLink: any; // Central Medusa Link Service
+  remoteLink: any;
   [ContainerRegistrationKeys.LOGGER]: Logger;
 }
 
@@ -66,7 +67,6 @@ export class SanityMedusaSyncService {
       await Promise.all(
         batchChunk.map(async (sanityProd) => {
           try {
-            // 1. Transform Payload cleanly
             const medusaPayload = mapSanityToMedusaProduct(
               sanityProd,
               config.categoryIds,
@@ -74,18 +74,42 @@ export class SanityMedusaSyncService {
               config.salesChannelId,
             );
 
-             const cleanImagesArray = Array.isArray(medusaPayload.images)
+            const cleanImagesArray = Array.isArray(medusaPayload.images)
               ? medusaPayload.images.map((img: any) => ({
-                  url: img.url
+                  url: img.url,
                 }))
               : [];
 
-            // Persist Product Registry via Core Engine
-            const createdProducts = await productModuleService.createProducts([{
-               ...medusaPayload,
-               thumbnail: medusaPayload.thumbnail || cleanImagesArray[0]?.url || undefined,
-               images: cleanImagesArray,
-              }
+            const rawOrigin =
+              sanityProd.originCountry || (sanityProd as any).origin_country;
+            const validOriginCountry =
+              rawOrigin &&
+              typeof rawOrigin === "string" &&
+              rawOrigin.trim().length === 2
+                ? rawOrigin.trim().toLowerCase()
+                : "dz";
+
+            const rawMaterial = sanityProd.material;
+            const materialStr =
+              typeof rawMaterial === "string"
+                ? rawMaterial
+                : (rawMaterial as any)?.en ||
+                  (rawMaterial as any)?.fr ||
+                  undefined;
+
+            const { tags: _, ...safeProductCreatePayload } =
+              medusaPayload as any;
+
+            const createdProducts = await productModuleService.createProducts([
+              {
+                ...safeProductCreatePayload,
+                origin_country: validOriginCountry,
+                thumbnail:
+                  medusaPayload.thumbnail ||
+                  cleanImagesArray[0]?.url ||
+                  undefined,
+                images: cleanImagesArray,
+              },
             ]);
             const targetProduct = createdProducts?.[0];
 
@@ -97,19 +121,48 @@ export class SanityMedusaSyncService {
             }
             executionResults.created++;
 
-            // Provision Inventory Mapping using architectural cross-module Links
-            const variant = targetProduct.variants?.[0];
+            let variant = targetProduct.variants?.[0];
+            if (!variant) {
+              const [refetched] = await productModuleService.listProducts(
+                { id: targetProduct.id },
+                { relations: ["variants"] },
+              );
+              variant = refetched?.variants?.[0];
+            }
+
+            if (variant && cleanImagesArray.length > 0) {
+              const variantMediaUrls =
+                sanityProd.images && sanityProd.images.length > 0
+                  ? sanityProd.images.map((img: any) => img.url).filter(Boolean)
+                  : cleanImagesArray.map((img) => img.url);
+
+              if (variantMediaUrls.length > 0) {
+                await productModuleService.updateProducts(targetProduct.id, {
+                  variants: [
+                    {
+                      id: variant.id,
+                      metadata: {
+                        ...(variant.metadata || {}),
+                        variant_images: variantMediaUrls.map((url) => ({
+                          url,
+                        })),
+                      },
+                    },
+                  ],
+                });
+              }
+            }
+
             const shouldManageInventory = sanityProd.manage_inventory ?? true;
 
             if (variant && shouldManageInventory && config.stockLocationId) {
-              // Build inventory item explicitly
               const createdInventoryItems =
                 await inventoryModuleService.createInventoryItems([
                   {
                     sku: variant.sku,
-                    origin_country: sanityProd.originCountry
-                      ? sanityProd.originCountry.toLocaleLowerCase().trim()
-                      : "Unknown origin country",
+                    origin_country: validOriginCountry,
+                    material: materialStr,
+                    requires_shipping: true,
                     weight: sanityProd.weightGrams
                       ? parseFloat(sanityProd.weightGrams.toString())
                       : 0,
@@ -133,13 +186,11 @@ export class SanityMedusaSyncService {
                 );
               }
 
-              // Centralized multi-module link mapping via Link service
               await remoteLinkService.create({
                 [Modules.PRODUCT]: { variant_id: variant.id },
                 [Modules.INVENTORY]: { inventory_item_id: inventoryItem.id },
               });
 
-              // Establish availability count defaults safely across stock level indexes
               const stockQty =
                 sanityProd.stockQuantity !== undefined
                   ? sanityProd.stockQuantity

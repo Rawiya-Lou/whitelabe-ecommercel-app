@@ -2,9 +2,9 @@ import { loadEnv, defineConfig } from "@medusajs/framework/utils";
 
 loadEnv(process.env.NODE_ENV || "development", process.cwd());
 // If running locally, prefix with "dev_". If live, prefix with "prod_"
-const isProd = process.env.NODE_ENV === "production"
+const isProd = process.env.NODE_ENV === "production";
 const redisNamespacePrefix = isProd ? "prod_" : "dev_";
-const redisUrl = isProd ?  process.env.REDIS_URL : undefined;
+const redisUrl = isProd ? process.env.REDIS_URL : undefined;
 const eventBusModuleConfig = isProd
   ? {
       resolve: "@medusajs/medusa/event-bus-redis",
@@ -14,29 +14,29 @@ const eventBusModuleConfig = isProd
           prefix: redisNamespacePrefix,
         },
         redisOptions: {
-          maxRetriesPerRequest: null, 
+          maxRetriesPerRequest: null,
           enableReadyCheck: false,
-          keepAlive: 10000, 
+          keepAlive: 10000,
           retryStrategy(times: number) {
-            return Math.min(times * 100, 3000); 
+            return Math.min(times * 100, 3000);
           },
-           reconnectOnError(err: Error) {
+          reconnectOnError(err: Error) {
             const targetError = "READONLY";
             if (err.message.slice(0, targetError.length) === targetError) {
               return true;
             }
             if (err.message.includes("Connection is closed")) {
-              return true; 
+              return true;
             }
             return false;
-          }
-        }
+          },
+        },
       },
     }
-  :{
+  : {
       // Free, in-memory local fallback queue for development workflows!
       resolve: "@medusajs/medusa/event-bus-local",
-      options: {}
+      options: {},
     };
 
 const config = defineConfig({
@@ -49,13 +49,13 @@ const config = defineConfig({
           rejectUnauthorized: false,
         },
       },
-       keepAlive: true,
+      keepAlive: true,
       statement_timeout: 60000, // Extend maximum execution query allowance to 60s
       idle_in_transaction_session_timeout: 60000,
     },
     cookieOptions: {
       sameSite: "lax",
-      secure: false,
+      secure: isProd,
     },
     http: {
       storeCors: process.env.STORE_CORS || "/.*/",
@@ -77,14 +77,14 @@ const config = defineConfig({
             id: "local",
             options: {
               // Points directly to your static folder root inside apps/backend
-              upload_dir: "static", 
-              backend_url: process.env.BACKEND_URL 
-                ? `${process.env.BACKEND_URL}/static` 
+              upload_dir: "static",
+              backend_url: process.env.BACKEND_URL
+                ? `${process.env.BACKEND_URL}/static`
                 : "http://localhost:9000/static",
             },
-          }
-        ]
-      }
+          },
+        ],
+      },
     },
     {
       resolve: "@medusajs/medusa/payment",
@@ -117,7 +117,7 @@ const config = defineConfig({
     },
     {
       resolve: "@medusajs/medusa/fulfillment",
-       options: {
+      options: {
         providers: [
           {
             resolve: "@medusajs/medusa/fulfillment-manual",
@@ -125,11 +125,8 @@ const config = defineConfig({
           },
         ],
       },
-    
-
     },
     {
-     
       resolve: "./src/modules/algerian-logistics",
     },
   ],

@@ -34,7 +34,7 @@ function getTestExcludePatterns(): string[] {
   const baseExcludes = ["**/node_modules/**", "dist/**", ".medusa/**"];
 
   if (testType !== "e2e") {
-    return [...baseExcludes, "src/workflows/sanity-sync/__tests__/**"];
+    return [...baseExcludes, "src/workflows/sanity-sync/__tests__/**/*.e2e.spec.[jt]s"];
   }
 
   return baseExcludes;

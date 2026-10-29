@@ -17,7 +17,6 @@ interface BatchSyncStepInput {
 export const batchSyncStep = createStep(
   "batch-sync",
   async (input: BatchSyncStepInput, { container }) => {
-    // Resolve Medusa framework layers from runtime container
     const productModuleService = container.resolve(
       Modules.PRODUCT,
     ) as IProductModuleService;
@@ -29,7 +28,6 @@ export const batchSyncStep = createStep(
       ContainerRegistrationKeys.LOGGER,
     ) as Logger;
 
-    // Instantiate using the layout expected by your SanityMedusaSyncService constructor
     const batchService = new SanityMedusaSyncService({
       [Modules.PRODUCT]: productModuleService,
       [Modules.INVENTORY]: inventoryModuleService,

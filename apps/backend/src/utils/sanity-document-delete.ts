@@ -1,4 +1,3 @@
-import { MedusaError } from "@medusajs/framework/utils";
 import type { Logger } from "@medusajs/framework/types";
 
 interface SanityMutationResponse {
@@ -61,28 +60,35 @@ export async function deleteSanityDocument({
       try {
         responseError = (await response.json()) as SanityMutationResponse;
       } catch {
-        // The HTTP status remains actionable if Sanity returned a non-JSON body.
+        // Non-JSON response
       }
-      const errorMessage = responseError.error?.description || responseError.error?.message || `HTTP ${response.status}`;
-      throw new MedusaError(
-        MedusaError.Types.INVALID_DATA,
+
+      const errorMessage =
         responseError.error?.description ||
-          responseError.error?.message ||
-          `Sanity mutation failed with HTTP ${response.status}.`,
-      );
-       logger.warn(
-        `[Sanity Delete Sync Warn] Content Lake rejected reverse delete mutation for [${cleanId}]: ${errorMessage}. Proceeding safely.`
+        responseError.error?.message ||
+        `HTTP ${response.status}`;
+
+      // In Sanity, HTTP 409 means the product cannot be deleted because
+      // another document (e.g., category or lookbook) still references it.
+      if (response.status === 409) {
+        logger.warn(
+          `[Sanity Delete Sync Warn] Product [${cleanId}] has incoming references in Sanity: ${errorMessage}. Unlink references in Sanity Studio to purge completely.`,
+        );
+        return;
+      }
+
+      logger.warn(
+        `[Sanity Delete Sync Warn] Content Lake rejected reverse delete for [${cleanId}]: ${errorMessage}. Proceeding safely.`,
       );
       return;
     }
 
     logger.info(
-      `[Sanity Delete Sync] Deleted Sanity document [${cleanId}] (${context}).`,
+      `[Sanity Delete Sync] Successfully deleted Sanity document [${cleanId}] and any staging drafts (${context}).`,
     );
   } catch (error: unknown) {
     logger.error(
-      `[Sanity Delete Sync] Failed to delete Sanity document [${cleanId}] (${context}): ${error instanceof Error ? error.message : String(error)}`,
+      `[Sanity Delete Sync] Network or unexpected failure deleting Sanity document [${cleanId}] (${context}): ${error instanceof Error ? error.message : String(error)}`,
     );
-    throw error;
   }
 }
