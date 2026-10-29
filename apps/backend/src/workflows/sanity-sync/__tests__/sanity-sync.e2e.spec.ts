@@ -1,14 +1,10 @@
-import { beforeAll, afterAll, describe, it, expect } from "vitest";
+import { beforeAll, describe, it, expect } from "vitest";
 import { loadEnv } from "@medusajs/framework/utils";
 
 loadEnv("test", process.cwd());
 
 const BASE_URL = process.env.TEST_BASE_URL || "http://127.0.0.1:9000";
 const SYNC_URL = `${BASE_URL}/sanity-sync`;
-const PUBLISHABLE_API_KEY =
-  process.env.MEDUSA_PUBLISHABLE_KEY ||
-  process.env.PUBLISH_KEY ||
-  "pk_test_placeholder";
 const VALID_SECRET = process.env.SANITY_SYNC_SECRET_TOKEN || "development";
 
 interface SyncResponseDTO {

@@ -224,6 +224,7 @@ jobs:
           REDIS_URL: ${{ secrets.REDIS_URL }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           COOKIE_SECRET: ${{ secrets.COOKIE_SECRET }}
+          SANITY_PROJECT_ID: ${{secrets.SANITY_STUDIO_PROJECT_ID}}
           SANITY_SYNC_SECRET_TOKEN: ${{ secrets.CI_SYNC_TEST_READ_TOKEN}}
           MEDUSA_ADMIN_DASHBOARD_DISABLED: "true"
           NODE_ENV: test
