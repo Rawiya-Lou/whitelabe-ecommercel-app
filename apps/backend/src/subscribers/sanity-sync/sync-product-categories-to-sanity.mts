@@ -1,5 +1,5 @@
 import type { SubscriberConfig, SubscriberArgs } from "@medusajs/framework";
-import type { Logger, IProductModuleService } from "@medusajs/framework/types";
+import type { Logger } from "@medusajs/framework/types";
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils";
 import { createClient } from "@sanity/client";
 import {
@@ -24,7 +24,7 @@ export default async function syncProductCategoriesToSanity({
   const dataset =
     process.env.SANITY_DATASET ||
     process.env.SANITY_STUDIO_DATASET ||
-    "development";
+    "production";
   const sanityToken = process.env.SANITY_API_TOKEN;
 
   if (!sanityToken || !projectId) {
@@ -36,6 +36,49 @@ export default async function syncProductCategoriesToSanity({
 
   const targetProductId = data.product_id || data.id;
   if (!targetProductId) return;
+
+  const sanityClient = createClient({
+    projectId: projectId,
+    dataset: dataset,
+    token: sanityToken,
+    apiVersion: "2024-01-01",
+    useCdn: false,
+  });
+
+
+  if (eventName === "product.deleted") {
+    logger.info(`[Sanity Sync Sub] Detected product.deleted for Medusa ID [${targetProductId}].`);
+
+    try {
+      const matchingDocs = await sanityClient.fetch<{ _id: string }[]>(
+        `*[_type == "product" && (medusaId == $id || _id == $id || _id == "drafts." + $id)]{ _id }`,
+        { id: targetProductId }
+      );
+
+      if (!matchingDocs || matchingDocs.length === 0) {
+        logger.info(`[Sanity Sync Sub] No linked document found in Sanity for [${targetProductId}].`);
+        return;
+      }
+
+      const deleteMutations = matchingDocs.map((doc) => ({
+        delete: { id: doc._id },
+      }));
+
+      await syncLock.acquire(`medusa-sync:${targetProductId}`, 20);
+
+      const result = await sanityClient.mutate(deleteMutations);
+      logger.info(
+        `✔ [Sanity Sync Sub] Successfully deleted ${matchingDocs.length} document(s) from Sanity for Medusa product [${targetProductId}].`,
+      );
+      return;
+    } catch (err: any) {
+      logger.error(`[Sanity Sync Sub] Failed to delete product in Sanity: ${err?.message || err}`);
+      await syncLock.release(`medusa-sync:${targetProductId}`);
+      return;
+    }
+  }
+
+
   const isCleanTargetProductId = await syncLock.isLocked(
     `sanity-sync:${targetProductId}`,
   );
@@ -77,16 +120,7 @@ export default async function syncProductCategoriesToSanity({
   const product = products?.[0];
   if (!product) return;
 
-  const sanityClient = createClient({
-    projectId: projectId,
-    dataset: dataset,
-    token: sanityToken,
-    apiVersion: "2021-06-07",
-    useCdn: false,
-  });
-
   const defaultVariant = product.variants?.[0] || {};
-
   const productMetadata = (product.metadata ?? {}) as Record<string, any>;
   const sanityProductId = productMetadata.sanity_id as string;
   const medusaTranslations =
@@ -122,6 +156,7 @@ export default async function syncProductCategoriesToSanity({
   const activeSanityDocId =
     existingSanityProduct?._id || sanityProductId || product.id;
   const cleanSanityId = activeSanityDocId.replace(/^drafts\./, "");
+
   const titleObj: SanityLocalizedString & { _type: string } = {
     _type: "localizedString",
     en: String(
@@ -200,11 +235,12 @@ export default async function syncProductCategoriesToSanity({
           .map((t: any) => (typeof t === "string" ? t : t?.value || ""))
           .filter(Boolean)
       : [];
+
   const rawCountry =
     product.origin_country ||
     defaultVariant.origin_country ||
     productMetadata.originCountry ||
-    "DZ";
+    "";
   const resolvedCountry = String(rawCountry).trim().toUpperCase().slice(0, 2);
 
   const rawHighlights =
@@ -220,6 +256,7 @@ export default async function syncProductCategoriesToSanity({
       ar: hl.ar || "",
     }));
   }
+
   const rawSeo: SanitySEOPayload =
     productMetadata.seo || existingSanityProduct?.seo || {};
   const ogAssetRef =
@@ -227,6 +264,7 @@ export default async function syncProductCategoriesToSanity({
     rawSeo.openGraphImage?.asset?._ref ||
     existingSanityProduct?.seo?.openGraphImage?.asset?._ref ||
     "";
+
   const formattedSeo: SanitySEOPayload = {
     metaTitle: {
       _type: "localizedString",
@@ -251,75 +289,6 @@ export default async function syncProductCategoriesToSanity({
         _ref: ogAssetRef,
       },
     } as SanityOpenGraphImage;
-  }
-
-  const currentMetaTranslations = productMetadata.translations || {};
-
-  const isDescOutOfSync =
-    Boolean(product.description) &&
-    currentMetaTranslations.en?.description !== product.description;
-
-  const isTitleOutOfSync =
-    Boolean(product.title) &&
-    currentMetaTranslations.en?.title !== product.title;
-
-  const isSubtitleOutOfSync =
-    Boolean(product.subtitle) &&
-    currentMetaTranslations.fr?.title !== product.subtitle;
-
-  const isMaterialOutOfSync =
-    Boolean(product.material) &&
-    currentMetaTranslations.en?.material !== product.material;
-
-  if (
-    isDescOutOfSync ||
-    isTitleOutOfSync ||
-    isSubtitleOutOfSync ||
-    isMaterialOutOfSync
-  ) {
-    const updatedMetadata = {
-      ...productMetadata,
-      translations: {
-        ...currentMetaTranslations,
-        en: {
-          title: product.title || currentMetaTranslations.en?.title || "",
-          description:
-            product.description ||
-            currentMetaTranslations.en?.description ||
-            "",
-          material:
-            product.material || currentMetaTranslations.en?.material || "",
-        },
-        fr: {
-          title: product.subtitle || currentMetaTranslations.fr?.title || "",
-          description: currentMetaTranslations.fr?.description || "",
-          material: currentMetaTranslations.fr?.material || "",
-        },
-        ar: {
-          title: currentMetaTranslations.ar?.title || "",
-          description: currentMetaTranslations.ar?.description || "",
-          material: currentMetaTranslations.ar?.material || "",
-        },
-      },
-      title_en: product.title || productMetadata.title_en,
-      description_en: product.description || productMetadata.description_en,
-      title_fr: product.subtitle || productMetadata.title_fr || "",
-      material_en: product.material || productMetadata.material_en || "",
-    };
-
-    await syncLock.acquire(`sanity-sync:${product.id}`, 15);
-
-    const productModuleService = container.resolve<IProductModuleService>(
-      Modules.PRODUCT,
-    );
-
-    await productModuleService.updateProducts(product.id, {
-      metadata: updatedMetadata,
-    });
-
-    logger.info(
-      `[Sanity Sync Sub] Successfully synced Medusa metadata.translations with new description/title.`,
-    );
   }
 
   const categories = (product.categories || []).flatMap((category) => {
@@ -368,21 +337,6 @@ export default async function syncProductCategoriesToSanity({
           matchedSanityImage.asset?._ref || matchedSanityImage._ref || "";
       }
 
-      if (!assetRef) {
-        try {
-          const urlParts = imageUrl.split("/images/");
-          if (urlParts.length >= 2) {
-            const pathSegments = urlParts[1].split("/");
-            if (pathSegments.length >= 3) {
-              const filename = pathSegments[2];
-              const lastDotIndex = filename.lastIndexOf(".");
-              if (lastDotIndex !== -1) {
-                assetRef = `image-${filename.substring(0, lastDotIndex)}-${filename.substring(lastDotIndex + 1)}`;
-              }
-            }
-          }
-        } catch (e) {}
-      }
       const altData = matchedMedusaMeta.alt || {};
       const sanityAltData = matchedSanityImage || {};
 
@@ -406,8 +360,6 @@ export default async function syncProductCategoriesToSanity({
   await syncLock.acquire(`medusa-sync:${cleanSanityId}`, 15);
   await syncLock.acquire(`medusa-sync:${activeSanityDocId}`, 15);
 
-  const mutationUrl = `https://${projectId}.api.sanity.io/v2021-06-07/data/mutate/${encodeURIComponent(dataset)}`;
-
   const patchSet: Record<string, any> = {
     title: titleObj,
     description: descriptionObj,
@@ -418,10 +370,6 @@ export default async function syncProductCategoriesToSanity({
     tags: pulledTags,
     categories: categories,
     images: finalSanityImages,
-    // weightGrams: product.weight ? Number(product.weight) : 0,
-    // lengthMm: product.length ? Number(product.length) : 0,
-    // widthMm: product.width ? Number(product.width) : 0,
-    // heightMm: product.height ? Number(product.height) : 0,
   };
 
   if (formattedHighlights.length > 0) {
@@ -432,17 +380,13 @@ export default async function syncProductCategoriesToSanity({
     formattedSeo?.metaTitle?.en ||
     formattedSeo?.metaDescription?.en ||
     ogAssetRef ||
-    formattedSeo?.keywords
+    formattedSeo?.keywords?.length
   ) {
     patchSet.seo = formattedSeo;
   }
 
-  logger.info(
-    `[DEBUG]: in the subscriber the patchSet ${JSON.stringify(patchSet, null, 2)}`,
-  );
-
-  const mutationPayload = {
-    mutations: [
+  try {
+    await sanityClient.mutate([
       {
         createIfNotExists: {
           _id: cleanSanityId,
@@ -455,31 +399,11 @@ export default async function syncProductCategoriesToSanity({
           set: patchSet,
         },
       },
-    ],
-  };
+    ]);
 
-  logger.info(
-    `[DEBUG]: in the subscriber the mutationPayload ${JSON.stringify(mutationPayload, null, 2)}`,
-  );
-
-  try {
-    const response = await fetch(mutationUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${sanityToken}`,
-      },
-      body: JSON.stringify(mutationPayload),
-    });
-
-    if (response.ok) {
-      logger.info(
-        `[Sanity Sync Sub] Reverse sync patched successfully for [${targetProductId}] including all translations, material, and tags.`,
-      );
-    } else {
-      const errText = await response.text();
-      logger.error(`[Sanity Sync Sub] Mutation rejected by Sanity: ${errText}`);
-    }
+    logger.info(
+      `[Sanity Sync Sub] Reverse sync patched successfully for Medusa product [${targetProductId}].`,
+    );
   } catch (error) {
     logger.error(`[Sanity Sync Sub] Sync mutation failed: ${error}`);
     await syncLock.release(`medusa-sync:${cleanSanityId}`);
@@ -491,9 +415,11 @@ export const config: SubscriberConfig = {
   event: [
     "product.updated",
     "product.created",
+    "product.deleted",
     "product.variant.updated",
     "product.variant.created",
     "product-category.attached",
     "product-category.detached",
+    "product-category.deleted",
   ],
 };

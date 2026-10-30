@@ -26,7 +26,7 @@ function getTestIncludePatterns(): string[] {
   }
 
   // Fallback: Default to all unit and integration test specs
-  return ["src/**/__tests__/**/*.[jt]s", "src/**/*.{test,spec}.[jt]s?(x)", "integration-tests/**/*.spec.[jt]s"];
+  return ["src/**/__tests__/**/*.[jt]s", "src/**/*.{test,spec}.[jt]s?(x)", "integration-tests/**/*.{test,spec}.[jt]s"];
 }
 
 function getTestExcludePatterns(): string[] {

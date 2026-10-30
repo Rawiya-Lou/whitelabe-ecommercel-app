@@ -28,7 +28,9 @@
     "sync:simulate": "ts-node scripts/trigger-sanity-sync.ts",
     "test:sync:e2e": "npx cross-env TEST_TYPE=e2e vitest run --silent --config ./vitest.config.mts",
     "medusa:preview": "npm run start",
-    "ci:sync:e2e": "npx start-server-and-test medusa:preview http://127.0.0.1:9000/health test:sync:e2e"
+    "ci:sync:e2e": "npx start-server-and-test medusa:preview http://127.0.0.1:9000/health test:sync:e2e",
+    "test:sync:deployed": "npx cross-env BACKEND_URL=https://whitelabe-ecommercel-app.onrender.com vitest run integration-tests/sanity-sync-prod.spec.ts",
+    "test:prod:sanity:sync:local": "npx start-server-and-test dev http://127.0.0.1:9000/health test:prod:sanity:sync"
   },
   "dependencies": {
     "@chargily/chargily-pay": "^2.1.0",
