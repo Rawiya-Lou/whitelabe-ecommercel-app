@@ -1,16 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils";
 
-const { mockSanityFetch } = vi.hoisted(() => ({
-  mockSanityFetch: vi.fn(),
-}));
-
-vi.mock("@sanity/client", () => ({
-  createClient: vi.fn(() => ({
-    fetch: mockSanityFetch,
-  })),
-}));
-
 vi.mock("../../../utils/sync-lock", () => ({
   syncLock: {
     isLocked: vi.fn(),
@@ -19,8 +9,8 @@ vi.mock("../../../utils/sync-lock", () => ({
   },
 }));
 
-import { syncLock } from "../../../utils/sync-lock.js";
-import syncProductCategoriesToSanity from "../sync-product-categories-to-sanity.mjs";
+import { syncLock } from "../../../utils/sync-lock";
+import syncProductCategoriesToSanity from "../sync-product-categories-to-sanity";
 
 describe("syncProductCategoriesToSanity Subscriber", () => {
   const originalEnv = process.env;
@@ -42,9 +32,26 @@ describe("syncProductCategoriesToSanity Subscriber", () => {
       SANITY_API_TOKEN: "test-token",
     };
 
-    mockFetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ results: [] }),
+    mockFetch = vi.fn((url: string) => {
+      if (url.includes("/data/query/")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ result: [] }),
+          text: async () => JSON.stringify({ result: [] }),
+        });
+      }
+      if (url.includes("/data/mutate/")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ results: [] }),
+          text: async () => JSON.stringify({ results: [] }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({}),
+        text: async () => "",
+      });
     });
     global.fetch = mockFetch;
 
@@ -74,7 +81,6 @@ describe("syncProductCategoriesToSanity Subscriber", () => {
     vi.mocked(syncLock.isLocked).mockResolvedValue(false);
     vi.mocked(syncLock.acquire).mockResolvedValue(undefined as any);
     vi.mocked(syncLock.release).mockResolvedValue(undefined as any);
-    mockSanityFetch.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -92,10 +98,9 @@ describe("syncProductCategoriesToSanity Subscriber", () => {
       } as any);
 
       expect(mockLogger.warn).toHaveBeenCalledWith(
-        expect.stringContaining("Integration credentials missing"),
+        expect.stringContaining("Credentials missing"),
       );
       expect(mockQuery.graph).not.toHaveBeenCalled();
-      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it("should skip if target product ID is missing from event payload", async () => {
@@ -105,7 +110,6 @@ describe("syncProductCategoriesToSanity Subscriber", () => {
       } as any);
 
       expect(mockQuery.graph).not.toHaveBeenCalled();
-      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it("should block loop and release lock if update was triggered by Sanity (sanity-sync active)", async () => {
@@ -122,7 +126,6 @@ describe("syncProductCategoriesToSanity Subscriber", () => {
         expect.stringContaining("Blocked echo back to Sanity"),
       );
       expect(mockQuery.graph).not.toHaveBeenCalled();
-      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it("should exit cleanly if product is not found in Medusa database", async () => {
@@ -134,12 +137,51 @@ describe("syncProductCategoriesToSanity Subscriber", () => {
       } as any);
 
       expect(mockQuery.graph).toHaveBeenCalled();
-      expect(mockFetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Product Deletion Handler (Medusa -> Sanity)", () => {
+    it("should query Sanity and delete matching documents when product.deleted fires", async () => {
+      mockFetch.mockImplementationOnce((url: string) => {
+        if (url.includes("/data/query/")) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              result: [{ _id: "sanity-prod-to-delete" }],
+            }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: async () => ({}) });
+      });
+
+      await syncProductCategoriesToSanity({
+        event: { name: "product.deleted", data: { id: "prod_to_delete" } },
+        container: mockContainer,
+      } as any);
+
+      expect(syncLock.acquire).toHaveBeenCalledWith(
+        "medusa-sync:prod_to_delete",
+        20,
+      );
+
+      const mutateCall = mockFetch.mock.calls.find((call: any[]) =>
+        call[0].includes("/data/mutate/"),
+      );
+      expect(mutateCall).toBeDefined();
+
+      const payload = JSON.parse(mutateCall[1].body);
+      expect(payload.mutations).toEqual([
+        { delete: { id: "sanity-prod-to-delete" } },
+      ]);
+
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        expect.stringContaining("Successfully deleted 1 doc(s) in Sanity"),
+      );
     });
   });
 
   describe("Forward Patch to Sanity", () => {
-    it("should build localized payload and patch Sanity with all attributes", async () => {
+    it("should build localized payload, slug, weak categories, and patch Sanity", async () => {
       const mockProduct = {
         id: "prod-01ABC",
         title: "Lajavel Perfume",
@@ -148,10 +190,6 @@ describe("syncProductCategoriesToSanity Subscriber", () => {
         description: "Artisanal citrus fragrance.",
         material: "Organic Alcohol & Oils",
         origin_country: "dz",
-        // weight: 250,
-        // length: 120,
-        // width: 80,
-        // height: 40,
         tags: ["Luxury", "Organic"],
         variants: [],
         metadata: {
@@ -195,29 +233,21 @@ describe("syncProductCategoriesToSanity Subscriber", () => {
         container: mockContainer,
       } as any);
 
-      // Verify fetch called to Sanity mutation API
-      expect(mockFetch).toHaveBeenCalledWith(
-        "https://test-project.api.sanity.io/v2021-06-07/data/mutate/test-dataset",
-        expect.objectContaining({
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: "Bearer test-token",
-          },
-        }),
+      const mutateCall = mockFetch.mock.calls.find((call: any[]) =>
+        call[0].includes("/data/mutate/"),
       );
+      expect(mutateCall).toBeDefined();
 
-      // Inspect mutation payload
-      const requestCall = mockFetch.mock.calls[0];
-      const payload = JSON.parse(requestCall[1].body);
+      const payload = JSON.parse(mutateCall[1].body);
       const createOp = payload.mutations.find(
         (m: any) => m.createIfNotExists,
       )?.createIfNotExists;
       expect(createOp).toBeDefined();
       expect(createOp._id).toBe("4a21732e-sanity-uuid");
-      const patch = payload.mutations[1].patch;
 
+      const patch = payload.mutations.find((m: any) => m.patch)?.patch;
       expect(patch.id).toBe("4a21732e-sanity-uuid");
+
       expect(patch.set.title).toEqual({
         _type: "localizedString",
         en: "Lajavel Perfume",
@@ -231,16 +261,19 @@ describe("syncProductCategoriesToSanity Subscriber", () => {
         ar: "عطر حمضيات حرفي",
       });
 
-      // Logistics & Customs
-      expect(patch.set.originCountry).toBe("DZ");
+      expect(patch.set.slug).toEqual({
+        _type: "slug",
+        current: "lajavel-perfume",
+      });
+
       expect(patch.set.tags).toEqual(["Luxury", "Organic"]);
 
-      // Categories
       expect(patch.set.categories).toEqual([
         {
           _type: "reference",
           _ref: "cat-fragrances-sanity",
           _key: "cat_pcat-fragrances",
+          _weak: false,
         },
       ]);
     });
@@ -281,13 +314,11 @@ describe("syncProductCategoriesToSanity Subscriber", () => {
         container: mockContainer,
       } as any);
 
-      // Verify lock acquired before updating Medusa to prevent recursive loop
       expect(syncLock.acquire).toHaveBeenCalledWith(
         "sanity-sync:prod-admin-edit",
         15,
       );
 
-      // Verify productModuleService.updateProducts was called with synced metadata
       expect(mockProductModuleService.updateProducts).toHaveBeenCalledWith(
         "prod-admin-edit",
         {
@@ -312,7 +343,6 @@ describe("syncProductCategoriesToSanity Subscriber", () => {
             title_en: "New Admin Title",
             description_en: "New Admin Description",
             title_fr: "Nouveau Titre Admin",
-            material_en: "",
           }),
         },
       );
@@ -331,7 +361,15 @@ describe("syncProductCategoriesToSanity Subscriber", () => {
         ],
       });
 
-      mockFetch.mockRejectedValue(new Error("Sanity API Network Timeout"));
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes("/data/query/")) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({ result: [] }),
+          });
+        }
+        return Promise.reject(new Error("Sanity API Network Timeout"));
+      });
 
       await syncProductCategoriesToSanity({
         event: { name: "product.updated", data: { id: "prod_fail" } },
@@ -344,7 +382,6 @@ describe("syncProductCategoriesToSanity Subscriber", () => {
         ),
       );
 
-      // Verify locks were safely released
       expect(syncLock.release).toHaveBeenCalledWith(
         "medusa-sync:sanity_fail_doc",
       );

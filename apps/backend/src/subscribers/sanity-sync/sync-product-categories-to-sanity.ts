@@ -1,13 +1,12 @@
 import type { SubscriberConfig, SubscriberArgs } from "@medusajs/framework";
-import type { Logger } from "@medusajs/framework/types";
+import type { Logger, IProductModuleService } from "@medusajs/framework/types";
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils";
-import { createClient } from "@sanity/client";
 import {
   SanityLocalizedString,
   SanityOpenGraphImage,
   SanitySEOPayload,
-} from "../../workflows/sanity-sync/types.js";
-import { syncLock } from "../../utils/sync-lock.js";
+} from "../../workflows/sanity-sync/types";
+import { syncLock } from "../../utils/sync-lock";
 
 interface ProductCategoryLinkPayload {
   id?: string;
@@ -19,65 +18,82 @@ export default async function syncProductCategoriesToSanity({
   container,
 }: SubscriberArgs<ProductCategoryLinkPayload>): Promise<void> {
   const logger = container.resolve<Logger>(ContainerRegistrationKeys.LOGGER);
+  const targetProductId = data?.product_id || data?.id;
+
+  logger.info(
+    `[Sanity Sync Sub] Event "${eventName}" triggered for Product ID: [${targetProductId}]`,
+  );
+
+  if (!targetProductId) return;
+
   const projectId =
     process.env.SANITY_PROJECT_ID || process.env.SANITY_STUDIO_PROJECT_ID;
   const dataset =
-    process.env.SANITY_DATASET ||
-    process.env.SANITY_STUDIO_DATASET ||
-    "production";
+    process.env.SANITY_DATASET || process.env.SANITY_STUDIO_DATASET || "";
   const sanityToken = process.env.SANITY_API_TOKEN;
 
   if (!sanityToken || !projectId) {
     logger.warn(
-      "[Sanity Sync Sub] Integration credentials missing; skipping process.",
+      `[Sanity Sync Sub] Credentials missing: projectId=${projectId ? "OK" : "MISSING"}, token=${sanityToken ? "OK" : "MISSING"}`,
     );
     return;
   }
 
-  const targetProductId = data.product_id || data.id;
-  if (!targetProductId) return;
-
-  const sanityClient = createClient({
-    projectId: projectId,
-    dataset: dataset,
-    token: sanityToken,
-    apiVersion: "2024-01-01",
-    useCdn: false,
-  });
-
-
   if (eventName === "product.deleted") {
-    logger.info(`[Sanity Sync Sub] Detected product.deleted for Medusa ID [${targetProductId}].`);
-
+    logger.info(
+      `🗑️ [Sanity Delete Sync] Processing delete for Medusa ID [${targetProductId}]`,
+    );
     try {
-      const matchingDocs = await sanityClient.fetch<{ _id: string }[]>(
-        `*[_type == "product" && (medusaId == $id || _id == $id || _id == "drafts." + $id)]{ _id }`,
-        { id: targetProductId }
-      );
+      // Query matching documents in Sanity via native HTTP (Zero ESM build issues)
+      const queryStr = `*[_type == "product" && (medusaId == $id || _id == $id || _id == "drafts." + $id || slug.current == $id)]{ _id }`;
+      const queryUrl = `https://${projectId}.api.sanity.io/v2021-06-07/data/query/${encodeURIComponent(
+        dataset,
+      )}?query=${encodeURIComponent(queryStr)}&%24id=${encodeURIComponent(JSON.stringify(targetProductId))}`;
 
-      if (!matchingDocs || matchingDocs.length === 0) {
-        logger.info(`[Sanity Sync Sub] No linked document found in Sanity for [${targetProductId}].`);
-        return;
+      const queryRes = await fetch(queryUrl, {
+        headers: { Authorization: `Bearer ${sanityToken}` },
+      });
+      const queryData = await queryRes.json();
+      const matchingDocs = queryData.result || [];
+
+      if (matchingDocs.length > 0) {
+        await syncLock.acquire(`medusa-sync:${targetProductId}`, 20);
+
+        const deleteMutations = matchingDocs.map((doc: any) => ({
+          delete: { id: doc._id },
+        }));
+
+        const delRes = await fetch(
+          `https://${projectId}.api.sanity.io/v2021-06-07/data/mutate/${encodeURIComponent(dataset)}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${sanityToken}`,
+            },
+            body: JSON.stringify({ mutations: deleteMutations }),
+          },
+        );
+
+        if (delRes.ok) {
+          logger.info(
+            `✔ [Sanity Delete Sync] Successfully deleted ${matchingDocs.length} doc(s) in Sanity.`,
+          );
+        } else {
+          const errText = await delRes.text();
+          logger.error(`❌ [Sanity Delete Sync] Mutation failed: ${errText}`);
+        }
+      } else {
+        logger.info(
+          `[Sanity Delete Sync] No matching Sanity document found for [${targetProductId}].`,
+        );
       }
-
-      const deleteMutations = matchingDocs.map((doc) => ({
-        delete: { id: doc._id },
-      }));
-
-      await syncLock.acquire(`medusa-sync:${targetProductId}`, 20);
-
-      const result = await sanityClient.mutate(deleteMutations);
-      logger.info(
-        `✔ [Sanity Sync Sub] Successfully deleted ${matchingDocs.length} document(s) from Sanity for Medusa product [${targetProductId}].`,
-      );
-      return;
     } catch (err: any) {
-      logger.error(`[Sanity Sync Sub] Failed to delete product in Sanity: ${err?.message || err}`);
+      logger.error(`❌ [Sanity Delete Sync] Error: ${err?.message || err}`);
       await syncLock.release(`medusa-sync:${targetProductId}`);
-      return;
     }
+    return;
   }
-
 
   const isCleanTargetProductId = await syncLock.isLocked(
     `sanity-sync:${targetProductId}`,
@@ -118,7 +134,12 @@ export default async function syncProductCategoriesToSanity({
   });
 
   const product = products?.[0];
-  if (!product) return;
+  if (!product) {
+    logger.warn(
+      `[Sanity Sync Sub] Product [${targetProductId}] not found in Medusa DB.`,
+    );
+    return;
+  }
 
   const defaultVariant = product.variants?.[0] || {};
   const productMetadata = (product.metadata ?? {}) as Record<string, any>;
@@ -129,28 +150,31 @@ export default async function syncProductCategoriesToSanity({
 
   let existingSanityProduct: any = null;
   try {
-    const fetchedDocs = await sanityClient.fetch(
-      `*[_id == $id || _id == "drafts." + $id || medusaId == $medusaId || slug.current == $handle] | order(_updatedAt desc){ 
-        _id, 
-        title,
-        description,
-        material,
-        highlights,
-        seo,
-        categories,
-        images
-      }`,
-      {
-        id: sanityProductId || product.id,
-        medusaId: product.id,
-        handle: medusaProductHandle || "",
-      },
-    );
-    existingSanityProduct = fetchedDocs?.[0] || null;
+    const fetchGroq = `*[_id == $id || _id == "drafts." + $id || medusaId == $medusaId || slug.current == $handle] | order(_updatedAt desc){ 
+      _id, 
+      title,
+      description,
+      material,
+      highlights,
+      seo,
+      categories,
+      images
+    }`;
+    const params = new URLSearchParams({
+      query: fetchGroq,
+      $id: JSON.stringify(sanityProductId || product.id),
+      $medusaId: JSON.stringify(product.id),
+      $handle: JSON.stringify(medusaProductHandle || ""),
+    });
+    const url = `https://${projectId}.api.sanity.io/v2021-06-07/data/query/${encodeURIComponent(dataset)}?${params.toString()}`;
+
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${sanityToken}` },
+    });
+    const json = await res.json();
+    existingSanityProduct = json.result?.[0] || null;
   } catch (e) {
-    logger.error(
-      `[Sanity Sync Sub] Cannot query live text data state from Sanity: ${e}`,
-    );
+    logger.error(`[Sanity Sync Sub] Cannot query live state from Sanity: ${e}`);
   }
 
   const activeSanityDocId =
@@ -236,13 +260,6 @@ export default async function syncProductCategoriesToSanity({
           .filter(Boolean)
       : [];
 
-  const rawCountry =
-    product.origin_country ||
-    defaultVariant.origin_country ||
-    productMetadata.originCountry ||
-    "";
-  const resolvedCountry = String(rawCountry).trim().toUpperCase().slice(0, 2);
-
   const rawHighlights =
     productMetadata.highlights || existingSanityProduct?.highlights || [];
   let formattedHighlights: any[] = [];
@@ -291,6 +308,66 @@ export default async function syncProductCategoriesToSanity({
     } as SanityOpenGraphImage;
   }
 
+  const currentMetaTranslations = productMetadata.translations || {};
+  const isDescOutOfSync =
+    Boolean(product.description) &&
+    currentMetaTranslations.en?.description !== product.description;
+  const isTitleOutOfSync =
+    Boolean(product.title) &&
+    currentMetaTranslations.en?.title !== product.title;
+  const isSubtitleOutOfSync =
+    Boolean(product.subtitle) &&
+    currentMetaTranslations.fr?.title !== product.subtitle;
+  const isMaterialOutOfSync =
+    Boolean(product.material) &&
+    currentMetaTranslations.en?.material !== product.material;
+
+  if (
+    isDescOutOfSync ||
+    isTitleOutOfSync ||
+    isSubtitleOutOfSync ||
+    isMaterialOutOfSync
+  ) {
+    const updatedMetadata = {
+      ...productMetadata,
+      translations: {
+        ...currentMetaTranslations,
+        en: {
+          title: product.title || currentMetaTranslations.en?.title || "",
+          description:
+            product.description ||
+            currentMetaTranslations.en?.description ||
+            "",
+          material:
+            product.material || currentMetaTranslations.en?.material || "",
+        },
+        fr: {
+          title: product.subtitle || currentMetaTranslations.fr?.title || "",
+          description: currentMetaTranslations.fr?.description || "",
+          material: currentMetaTranslations.fr?.material || "",
+        },
+        ar: {
+          title: currentMetaTranslations.ar?.title || "",
+          description: currentMetaTranslations.ar?.description || "",
+          material: currentMetaTranslations.ar?.material || "",
+        },
+      },
+      title_en: product.title || productMetadata.title_en,
+      description_en:
+        product.description || productMetadata.description_en || "",
+      title_fr: product.subtitle || productMetadata.title_fr || "",
+      material_en: product.material || productMetadata.material_en || "",
+    };
+
+    await syncLock.acquire(`sanity-sync:${product.id}`, 15);
+    const productModuleService = container.resolve<IProductModuleService>(
+      Modules.PRODUCT,
+    );
+    await productModuleService.updateProducts(product.id, {
+      metadata: updatedMetadata,
+    });
+  }
+
   const categories = (product.categories || []).flatMap((category) => {
     if (!category) return [];
     const refId =
@@ -302,6 +379,7 @@ export default async function syncProductCategoriesToSanity({
         _type: "reference",
         _ref: String(refId).replace(/^drafts\./, ""),
         _key: `cat_${category.id}`,
+        _weak: false,
       },
     ];
   });
@@ -337,6 +415,22 @@ export default async function syncProductCategoriesToSanity({
           matchedSanityImage.asset?._ref || matchedSanityImage._ref || "";
       }
 
+      if (!assetRef) {
+        try {
+          const urlParts = imageUrl.split("/images/");
+          if (urlParts.length >= 2) {
+            const pathSegments = urlParts[1].split("/");
+            if (pathSegments.length >= 3) {
+              const filename = pathSegments[2];
+              const lastDotIndex = filename.lastIndexOf(".");
+              if (lastDotIndex !== -1) {
+                assetRef = `image-${filename.substring(0, lastDotIndex)}-${filename.substring(lastDotIndex + 1)}`;
+              }
+            }
+          }
+        } catch (e) {}
+      }
+
       const altData = matchedMedusaMeta.alt || {};
       const sanityAltData = matchedSanityImage || {};
 
@@ -360,13 +454,18 @@ export default async function syncProductCategoriesToSanity({
   await syncLock.acquire(`medusa-sync:${cleanSanityId}`, 15);
   await syncLock.acquire(`medusa-sync:${activeSanityDocId}`, 15);
 
+  const mutationUrl = `https://${projectId}.api.sanity.io/v2021-06-07/data/mutate/${encodeURIComponent(dataset)}`;
+
   const patchSet: Record<string, any> = {
     title: titleObj,
-    description: descriptionObj,
+    slug: {
+      _type: "slug",
+      current: product.handle || targetProductId,
+    },
+    description: descriptionObj || "",
     medusaId: product.id,
     updatedBy: "medusa",
-    material: materialObj,
-    originCountry: resolvedCountry,
+    material: materialObj || "",
     tags: pulledTags,
     categories: categories,
     images: finalSanityImages,
@@ -385,8 +484,8 @@ export default async function syncProductCategoriesToSanity({
     patchSet.seo = formattedSeo;
   }
 
-  try {
-    await sanityClient.mutate([
+  const mutationPayload = {
+    mutations: [
       {
         createIfNotExists: {
           _id: cleanSanityId,
@@ -399,13 +498,31 @@ export default async function syncProductCategoriesToSanity({
           set: patchSet,
         },
       },
-    ]);
+    ],
+  };
 
-    logger.info(
-      `[Sanity Sync Sub] Reverse sync patched successfully for Medusa product [${targetProductId}].`,
-    );
+  try {
+    const response = await fetch(mutationUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${sanityToken}`,
+      },
+      body: JSON.stringify(mutationPayload),
+    });
+
+    if (response.ok) {
+      logger.info(
+        `✔ [Sanity Sync Sub] Reverse sync patched successfully for Medusa product [${targetProductId}].`,
+      );
+    } else {
+      const errText = await response.text();
+      logger.error(
+        `✖ [Sanity Sync Sub] Mutation rejected by Sanity: ${errText}`,
+      );
+    }
   } catch (error) {
-    logger.error(`[Sanity Sync Sub] Sync mutation failed: ${error}`);
+    logger.error(`✖ [Sanity Sync Sub] Sync mutation failed: ${error}`);
     await syncLock.release(`medusa-sync:${cleanSanityId}`);
     await syncLock.release(`medusa-sync:${activeSanityDocId}`);
   }
@@ -420,6 +537,5 @@ export const config: SubscriberConfig = {
     "product.variant.created",
     "product-category.attached",
     "product-category.detached",
-    "product-category.deleted",
   ],
 };

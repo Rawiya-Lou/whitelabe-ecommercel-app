@@ -1,5 +1,10 @@
 import { defineType, defineField } from "sanity";
 import { BasketIcon } from "@sanity/icons/Basket";
+import { ImageIcon } from "@sanity/icons/Image";
+import { SearchIcon } from "@sanity/icons/Search";
+import { PresentationIcon } from "@sanity/icons/Presentation";
+import { DocumentTextIcon } from "@sanity/icons/DocumentText";
+import { TransferIcon } from "@sanity/icons/Transfer";
 
 export const product = defineType({
   name: "product",
@@ -7,12 +12,17 @@ export const product = defineType({
   type: "document",
   icon: BasketIcon,
   groups: [
-    { name: "general", title: "General Info", default: true },
+    {
+      name: "general",
+      title: "General Info",
+      default: true,
+      icon: DocumentTextIcon,
+    },
     { name: "pricing", title: "Pricing & Stock" },
-    { name: "media", title: "Media" },
-    { name: "logistics", title: "Shipping & Customs" },
-    { name: "marketing", title: "Marketing & PDP" },
-    { name: "seo", title: "SEO" },
+    { name: "media", title: "Media", icon: ImageIcon },
+    { name: "logistics", title: "Shipping & Customs", icon: TransferIcon },
+    { name: "marketing", title: "Marketing & PDP", icon: PresentationIcon },
+    { name: "seo", title: "SEO", icon: SearchIcon },
   ],
   fields: [
     defineField({
@@ -94,10 +104,6 @@ export const product = defineType({
       group: "general",
     }),
 
-  
-
-    // 3. LOGISTICS & CUSTOMS
-
     defineField({
       name: "material",
       title: "Material / Composition",
@@ -105,53 +111,6 @@ export const product = defineType({
       description: "e.g., 100% Linen, Ceramic, Pure Wool",
       group: "logistics",
     }),
-
-    defineField({
-      name: "originCountry",
-      title: "Country of Origin",
-      type: "string",
-      description:
-        "2-letter ISO code: DZ (Algeria), FR (France), IT (Italy), TR (Turkey)",
-      initialValue: "DZ",
-      validation: (Rule) =>
-        Rule.max(2)
-          .uppercase()
-          .error(
-            "Must be a valid 2-letter uppercase ISO country code (e.g. DZ, FR)",
-          ),
-      group: "logistics",
-    }),
-
-    // defineField({
-    //   name: "weightGrams",
-    //   title: "Product Weight (Grams)",
-    //   type: "number",
-    //   initialValue: 0,
-    //   group: "logistics",
-    // }),
-
-    // defineField({
-    //   name: "lengthMm",
-    //   title: "Product Length (mm)",
-    //   type: "number",
-    //   group: "logistics",
-    // }),
-
-    // defineField({
-    //   name: "widthMm",
-    //   title: "Product Width (mm)",
-    //   type: "number",
-    //   group: "logistics",
-    // }),
-
-    // defineField({
-    //   name: "heightMm",
-    //   title: "Product Height (mm)",
-    //   type: "number",
-    //   group: "logistics",
-    // }),
-
-    // 4. MARKETING & PDP FEATURES
 
     defineField({
       name: "highlights",
@@ -162,8 +121,6 @@ export const product = defineType({
         "Short bullet points for PDP (e.g., 'Handcrafted in Algiers', 'Water-resistant')",
       group: "marketing",
     }),
-
-    // 5. MEDIA
 
     defineField({
       name: "images",
@@ -200,8 +157,6 @@ export const product = defineType({
       ],
       group: "media",
     }),
-
-    // 6. SEO & SOCIAL SHARING (Consolidated)
 
     defineField({
       name: "seo",
@@ -251,7 +206,6 @@ export const product = defineType({
     }),
   ],
 
-  // Studio List Preview (Fallback to Arabic if English is absent)
   preview: {
     select: {
       titleEn: "title.en",
