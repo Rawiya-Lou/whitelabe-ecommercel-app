@@ -126,11 +126,6 @@ const extractCategorySlug = (value: unknown): string | undefined => {
   return undefined;
 };
 
-const extractCategoryReferenceId = (value: unknown): string | undefined => {
-  if (!isRecord(value)) return undefined;
-  return getString(value._ref) || getString(value._id);
-};
-
 const sanitizeHandle = (slug: string): string =>
   slug
     .toLowerCase()
@@ -139,63 +134,6 @@ const sanitizeHandle = (slug: string): string =>
     .replace(/[^a-z0-9-]/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
-
-interface SanityCategoryDetails {
-  id: string;
-  handle: string;
-  title: string;
-}
-
-const getSanityCategoryDetails = async (
-  referenceId: string,
-  projectId: string,
-  dataset: string,
-): Promise<SanityCategoryDetails | undefined> => {
-  const query =
-    '*[_id == $id][0]{"id": _id, "handle": slug.current, "title": coalesce(title.en, title)}';
-  const queryUrl = new URL(
-    `https://${projectId}.api.sanity.io/v2021-10-21/data/query/${encodeURIComponent(dataset)}`,
-  );
-
-  const headers: Record<string, string> = { Accept: "application/json" };
-  const sanityToken = process.env.SANITY_API_TOKEN;
-  if (sanityToken) headers.Authorization = `Bearer ${sanityToken}`;
-
-  for (const candidateId of getSanityIdCandidates(referenceId)) {
-    const candidateUrl = new URL(queryUrl);
-    candidateUrl.searchParams.set("query", query);
-    candidateUrl.searchParams.set("$id", JSON.stringify(candidateId));
-
-    const response = await fetch(candidateUrl, {
-      headers,
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!response.ok) continue;
-
-    const payload: unknown = await response.json();
-    if (!isRecord(payload) || !isRecord(payload.result)) continue;
-
-    const id = getString(payload.result.id);
-    const handle = getString(payload.result.handle);
-    if (!id || !handle) continue;
-
-    let parsedTitle = payload.result.title;
-    if (typeof parsedTitle === "object" && parsedTitle !== null) {
-      parsedTitle = (parsedTitle as any).en || "Category";
-    }
-
-    return {
-      id: cleanSanityId(id),
-      handle,
-      title:
-        typeof parsedTitle === "string"
-          ? parsedTitle.trim()
-          : String(parsedTitle || handle),
-    };
-  }
-
-  return undefined;
-};
 
 export function extractImageToken(image: any): string | undefined {
   if (!image) return undefined;
@@ -267,7 +205,7 @@ export async function POST(
   const dataset =
     process.env.SANITY_DATASET ||
     process.env.SANITY_STUDIO_DATASET ||
-    "development";
+    "production";
 
   const imgFallbackUrl = DEFAULT_FALLBACK;
   const configuredSyncToken = process.env.SANITY_SYNC_SECRET_TOKEN;
@@ -332,9 +270,6 @@ export async function POST(
 
     const incomingCmsProduct: Partial<SanityRawProductInput> =
       rawPayload.productData || rawPayload;
-    logger.info(
-      `[DEBUG]: payload in the route file ${JSON.stringify(rawPayload, null, 2)}`,
-    );
 
     const documentId: string =
       sanityDocumentId || incomingCmsProduct?._id || rawPayload?._id || "";
@@ -357,9 +292,7 @@ export async function POST(
 
     if (!isDeletion) {
       const isCleanIdLocked = await syncLock.isLocked(`medusa-sync:${cleanId}`);
-      const isDocIdLocked = await syncLock.isLocked(
-        `medusa-sync:${documentId}`,
-      );
+      const isDocIdLocked = await syncLock.isLocked(`medusa-sync:${documentId}`);
 
       if (isCleanIdLocked || isDocIdLocked) {
         await syncLock.release(`medusa-sync:${cleanId}`);
@@ -373,8 +306,6 @@ export async function POST(
       }
     }
 
-    const IMMUTABLE_OPERATION_TARGET: OperationTypes =
-      resolvedRequestContextOperation;
     let operation: OperationTypes = resolvedRequestContextOperation;
 
     const urlPerspective = req.query?.perspective as string | undefined;
@@ -479,37 +410,9 @@ export async function POST(
       return;
     }
 
-    if (incomingCmsProduct.slug) {
-      let extractedSlugString = "";
-      if (
-        typeof incomingCmsProduct.slug === "object" &&
-        "current" in incomingCmsProduct.slug
-      ) {
-        extractedSlugString = incomingCmsProduct.slug.current;
-      } else if (typeof incomingCmsProduct.slug === "string") {
-        extractedSlugString = incomingCmsProduct.slug;
-      }
-
-      if (extractedSlugString) {
-        const rawPayloadRef = rawPayload as any;
-        if (rawPayloadRef.productData) {
-          rawPayloadRef.productData.slug = { current: extractedSlugString };
-        }
-      }
-    }
-
-    if (operation === "batch") {
-      await sanitySyncProductWorkflow(req.scope).run({
-        input: rawPayload as SanitySyncWorkflowInput,
-      });
-      res.status(200).json({
-        success: true,
-        message: "Batch processing complete",
-        operation: operation,
-      });
-      return;
-    }
-
+    // -------------------------------------------------------------------------
+    // CATEGORY ROUTING
+    // -------------------------------------------------------------------------
     if (documentType === "category") {
       const extractedCategorySlug =
         extractCategorySlug(cmsProduct?.slug)?.toLowerCase().trim() || "";
@@ -548,20 +451,8 @@ export async function POST(
         ).trim();
       }
 
-      if (
-        operation === "delete" ||
-        IMMUTABLE_OPERATION_TARGET === "delete" ||
-        isDeletion
-      ) {
+      if (operation === "delete" || isDeletion) {
         const sanityDocId = cleanId;
-        if (!sanityDocId) {
-          res.status(400).json({
-            success: false,
-            error: "Category deletion payload is missing a Sanity document ID.",
-          });
-          return;
-        }
-
         let targetCategory:
           | { id: string; handle: string; products?: { id: string }[] }
           | undefined;
@@ -588,19 +479,11 @@ export async function POST(
         }
 
         if (!targetCategory) {
+          if (req._releaseSyncLock) req._releaseSyncLock();
           res.status(200).json({
             success: true,
             message: "Category deletion synced successfully.",
             operation: "delete",
-          });
-          return;
-        }
-
-        if (targetCategory.products && targetCategory.products.length > 0) {
-          res.status(200).json({
-            success: false,
-            message:
-              "Sync execution blocked: Cannot delete a category with assigned products.",
           });
           return;
         }
@@ -622,9 +505,7 @@ export async function POST(
           } as unknown as SanityProductPayload,
         };
 
-        await sanitySyncProductWorkflow(req.scope).run({
-          input: deletionInput,
-        });
+        await sanitySyncProductWorkflow(req.scope).run({ input: deletionInput });
 
         if (req._releaseSyncLock) req._releaseSyncLock();
         res.status(200).json({
@@ -636,16 +517,6 @@ export async function POST(
       }
 
       if (operation === "create" || operation === "update") {
-        if (extractedCategorySlug === "") {
-          if (req._releaseSyncLock) req._releaseSyncLock();
-          res.status(400).json({
-            success: false,
-            error:
-              "Validation failure: Target category handle cannot be empty.",
-          });
-          return;
-        }
-
         const categories = await productModuleService.listProductCategories({
           handle: [extractedCategorySlug],
         });
@@ -677,6 +548,7 @@ export async function POST(
           });
         }
 
+        if (req._releaseSyncLock) req._releaseSyncLock();
         res.status(200).json({
           success: true,
           message: "Category sync complete",
@@ -686,32 +558,12 @@ export async function POST(
       }
     }
 
+    // -------------------------------------------------------------------------
+    // PRODUCT DELETION
+    // -------------------------------------------------------------------------
     if (operation === "delete" && documentType === "product") {
-      const sanityDocId =
-        rawPayload._id || cmsProduct?._id || sanityDocumentId || "";
-      const cleanId = cleanSanityId(sanityDocId);
-      const isCleanIdLocked = await syncLock.isLocked(
-        `medusa-delete:${cleanId}`,
-      );
-      const isDocIdLocked = await syncLock.isLocked(
-        `medusa-delete:${sanityDocId}`,
-      );
-      if (isCleanIdLocked || isDocIdLocked) {
-        await syncLock.release(`medusa-delete:${cleanId}`);
-        await syncLock.release(`medusa-delete:${sanityDocId}`);
-        logger.info(
-          `[Sanity Sync Guard] Intercepted Medusa-initiated delete for [${cleanId}]. Loop blocked.`,
-        );
-        if (req._releaseSyncLock) req._releaseSyncLock();
-        res
-          .status(200)
-          .json({ success: true, message: "Deletion echo blocked" });
-        return;
-      }
-
       let targetProduct: { id: string; handle: string } | undefined;
 
-      // Check if sanityDocId is already a Medusa ID
       if (cleanId.startsWith("prod_")) {
         const { data: existingProducts } = await queryEngine.graph({
           entity: "product",
@@ -740,12 +592,11 @@ export async function POST(
         if (req._releaseSyncLock) req._releaseSyncLock();
         res.status(200).json({
           success: true,
-          message: "Product deletion synced successfull",
+          message: "Product deletion synced successfully.",
         });
         return;
       }
 
-      // This prevents the Medusa hook above from calling Sanity delete again!
       await syncLock.acquire(`sanity-delete:${targetProduct.id}`, 15);
 
       const deletionInput: SanitySyncWorkflowInput = {
@@ -775,17 +626,13 @@ export async function POST(
       return;
     }
 
-    if (!cmsProduct || !cmsProduct._id) {
-      if (req._releaseSyncLock) req._releaseSyncLock();
-      res
-        .status(400)
-        .json({ error: "Invalid single product payload received." });
-      return;
-    }
-
-    const categoryPayload: SanityCategoryPayload[] = [];
+    // -------------------------------------------------------------------------
+    // PRODUCT CREATE / UPDATE RESOLUTION
+    // -------------------------------------------------------------------------
     const rawCategories = cmsProduct.categories || rawPayload.categories || [];
+    const categoryPayload: SanityCategoryPayload[] = [];
 
+    // ✅ FIX: Resolves categories by BOTH metadata.sanity_id AND slug/handle
     if (Array.isArray(rawCategories)) {
       for (const rawCategory of rawCategories) {
         if (!rawCategory) continue;
@@ -794,62 +641,55 @@ export async function POST(
           typeof rawCategory === "object"
             ? rawCategory._ref || rawCategory._id
             : rawCategory;
+        const rawCategorySlug =
+          typeof rawCategory === "object" ? extractCategorySlug(rawCategory.slug) : undefined;
 
-        if (!rawRef) continue;
+        let matchedCategory: { id: string; handle: string; name?: string } | undefined;
 
-        let referenceId = String(rawRef).replace(/^drafts\./, "");
-        if (referenceId.startsWith("category-")) {
-          referenceId = referenceId.replace(/^category-/, "");
-        }
-
-        let matchedCategory:
-          { id: string; handle: string; name?: string } | undefined;
-
-        if (referenceId) {
-          for (const candidateId of getSanityIdCandidates(referenceId)) {
-            const { data: matchedCategories } = await queryEngine.graph({
+        // 1. Try resolving by Sanity Candidate IDs
+        if (rawRef) {
+          const cleanRef = String(rawRef).replace(/^drafts\./, "").replace(/^category-/, "");
+          for (const candidateId of getSanityIdCandidates(cleanRef)) {
+            const { data: matched } = await queryEngine.graph({
               entity: "product_category",
               fields: ["id", "handle", "name"],
-              filters: {
-                metadata: { sanity_id: candidateId },
-              } as Record<string, unknown>,
+              filters: { metadata: { sanity_id: candidateId } } as Record<string, unknown>,
             });
-            const baseCat = Array.isArray(matchedCategories)
-              ? matchedCategories[0]
-              : undefined;
-            if (baseCat) {
-              matchedCategory = {
-                id: baseCat.id,
-                handle: baseCat.handle as string,
-                name: baseCat.name as string,
-              };
+            if (matched?.[0]) {
+              matchedCategory = { id: matched[0].id, handle: matched[0].handle, name: matched[0].name };
               break;
             }
           }
-          if (matchedCategory) {
-            categoryPayload.push(matchedCategory as SanityCategoryPayload);
+        }
+
+        // 2. Fallback: Try resolving by category handle/slug
+        if (!matchedCategory && rawCategorySlug) {
+          const { data: matchedBySlug } = await queryEngine.graph({
+            entity: "product_category",
+            fields: ["id", "handle", "name"],
+            filters: { handle: [rawCategorySlug] },
+          });
+          if (matchedBySlug?.[0]) {
+            matchedCategory = { id: matchedBySlug[0].id, handle: matchedBySlug[0].handle, name: matchedBySlug[0].name };
           }
+        }
+
+        if (matchedCategory) {
+          categoryPayload.push(matchedCategory as SanityCategoryPayload);
         }
       }
     }
+
     const rawSlug =
       extractCategorySlug(cmsProduct.slug) || `prod-${cmsProduct._id}`;
     const normalizedSlug = sanitizeHandle(rawSlug);
+
     const resolvedCategoryPayloads = categoryPayload.filter(
       (payload, index, self) =>
         self.findIndex((p) => p.id === payload.id) === index,
     );
 
-    if (resolvedCategoryPayloads.length === 0) {
-      if (req._releaseSyncLock) req._releaseSyncLock();
-      res.status(400).json({
-        success: false,
-        error:
-          "Product cannot be published until it references an existing Medusa category. Create and sync a category in Sanity, then assign it to the product.",
-      });
-      return;
-    }
-
+    // Mapped Images
     const rawImages =
       cmsProduct.images ||
       rawPayload.productData?.images ||
@@ -860,7 +700,7 @@ export async function POST(
     if (Array.isArray(rawImages)) {
       rawImages.forEach((image: SanityRawImageInput, index: number) => {
         if (!image) return;
-        let resolvedToken =
+        const resolvedToken =
           image.url ||
           (image.asset && (image.asset._ref || image.asset._id)) ||
           (image._ref as string) ||
@@ -878,12 +718,12 @@ export async function POST(
             );
           }
           const originalRef = image.asset?._ref || (image._ref as string) || "";
-          let resolvedEnText = "Product catalog image";
-          if (typeof image.alt_en === "string" && image.alt_en.trim() !== "") {
-            resolvedEnText = image.alt_en;
-          } else if (typeof image.alt === "string" && image.alt.trim() !== "") {
-            resolvedEnText = image.alt;
-          }
+          const resolvedEnText =
+            typeof image.alt_en === "string" && image.alt_en.trim() !== ""
+              ? image.alt_en
+              : typeof image.alt === "string" && image.alt.trim() !== ""
+              ? image.alt
+              : "Product catalog image";
 
           const computedKey =
             (image._key as string) || `img_${index}_${Date.now()}`;
@@ -891,7 +731,7 @@ export async function POST(
           mappedImages.push({
             _type: "image",
             _key: computedKey,
-            id: ((image.id as string) || computedKey) as string,
+            id: (image.id as string) || computedKey,
             url: cleanCdnUrl,
             alt: resolvedEnText,
             alt_en: resolvedEnText,
@@ -917,10 +757,6 @@ export async function POST(
 
     const incomingMetaTrans =
       (incomingCmsProduct?.metadata?.translations as Record<string, any>) || {};
-
-    logger.info(
-      `[DEBUG ROUTE FILE] trans in the route file ${JSON.stringify(incomingMetaTrans, null, 2)}`,
-    );
 
     const titleEn =
       String(
@@ -1011,9 +847,7 @@ export async function POST(
         (cmsProduct.material as any)?.ar ??
           incomingMetaTrans?.ar?.material ??
           "",
-      ).trim() ||
-      "" ||
-      "";
+      ).trim() || "";
     const materialFr =
       String(
         (cmsProduct.material as any)?.fr ??
@@ -1036,7 +870,7 @@ export async function POST(
       : [];
 
     const standardizedProductData: SanityProductPayload = {
-      _id: cmsProduct._id,
+      _id: cmsProduct._id as string,
       title: titleEn,
       material: materialEn,
       subtitle: titleFr || "",
@@ -1060,7 +894,6 @@ export async function POST(
           fr: { title: titleFr, description: descFr, material: materialFr },
           ar: { title: titleAr, description: descAr, material: materialAr },
         },
-
         title_en: titleEn,
         title_fr: titleFr,
         title_ar: titleAr,
@@ -1083,9 +916,49 @@ export async function POST(
       allow_backorder: cmsProduct.allow_backorder ?? false,
     };
 
-    logger.info(
-      `[debug route]; standardizedProductData: ${JSON.stringify(standardizedProductData, null, 2)}`,
-    );
+    let targetMedusaProductId: string | undefined;
+
+    // 1. Direct Medusa ID check
+    if (cleanId.startsWith("prod_")) {
+      const { data: byId } = await queryEngine.graph({
+        entity: "product",
+        fields: ["id"],
+        filters: { id: cleanId },
+      });
+      targetMedusaProductId = byId?.[0]?.id;
+    }
+
+    // 2. Lookup by metadata.sanity_id
+    if (!targetMedusaProductId) {
+      for (const candidateId of getSanityIdCandidates(cleanId)) {
+        const { data: matchedProducts } = await queryEngine.graph({
+          entity: "product",
+          fields: ["id"],
+          filters: { metadata: { sanity_id: candidateId } } as Record<string, any>,
+        });
+        if (matchedProducts?.[0]?.id) {
+          targetMedusaProductId = matchedProducts[0].id;
+          break;
+        }
+      }
+    }
+
+    // 3. Fallback: Lookup by Handle (PREVENTS "already exists" CRASH)
+    if (!targetMedusaProductId && normalizedSlug) {
+      const { data: matchedByHandle } = await queryEngine.graph({
+        entity: "product",
+        fields: ["id"],
+        filters: { handle: [normalizedSlug] },
+      });
+      if (matchedByHandle?.[0]?.id) {
+        targetMedusaProductId = matchedByHandle[0].id;
+      }
+    }
+
+    // If product exists in Medusa, switch operation to "update"
+    if (targetMedusaProductId && operation === "create") {
+      operation = "update";
+    }
 
     const resolvedCategoryIds: string[] = resolvedCategoryPayloads.flatMap(
       (c) => (typeof c.id === "string" ? [c.id] : []),
@@ -1101,57 +974,29 @@ export async function POST(
       categoryIds: resolvedCategoryIds,
     };
 
-    let targetMedusaProductId: string | undefined;
-
-    // Check if the cleanId itself is a Medusa ID
-    if (cleanId.startsWith("prod_")) {
-      const { data: byId } = await queryEngine.graph({
-        entity: "product",
-        fields: ["id"],
-        filters: { id: cleanId },
-      });
-      targetMedusaProductId = byId?.[0]?.id;
-    }
-
-    // Otherwise lookup by metadata sanity_id
-    if (!targetMedusaProductId) {
-      for (const candidateId of getSanityIdCandidates(cleanId)) {
-        const { data: matchedProducts } = await queryEngine.graph({
-          entity: "product",
-          fields: ["id"],
-          filters: {
-            metadata: { sanity_id: candidateId },
-          } as Record<string, any>,
-        });
-        if (matchedProducts?.[0]?.id) {
-          targetMedusaProductId = matchedProducts[0].id;
-          break;
-        }
-      }
-    }
-
-    // Lock target product for 15 SECONDS before workflow triggers Medusa subscribers
+    // Lock before workflow executes
     if (targetMedusaProductId) {
-      await syncLock.acquire(`sanity-sync:${targetMedusaProductId}`, 15);
+      await syncLock.acquire(`sanity-sync:${targetMedusaProductId}`, 20);
     }
+    await syncLock.acquire(`sanity-sync:${cleanId}`, 20);
 
     const workflowResponse = await sanitySyncProductWorkflow(req.scope).run({
       input: standardizedInput,
     });
 
-    const createdOrUpdatedId = targetMedusaProductId;
+    const createdId =
+      targetMedusaProductId ||
+      (workflowResponse?.result as any)?.product?.id ||
+      (workflowResponse?.result as any)?.id;
 
-    if (createdOrUpdatedId) {
-      await syncLock.acquire(`sanity-sync:${createdOrUpdatedId}`, 15);
+    if (createdId) {
+      await syncLock.acquire(`sanity-sync:${createdId}`, 20);
     }
 
-    const medusaOperation = workflowResponse?.result?.operation || operation;
-    logger.info(
-      `[Sanity Sync Hook] Completed Sanity [${operation}] for [${cmsProduct._id}]; Medusa outcome: [${medusaOperation}].`,
-    );
+    const medusaOperation = (workflowResponse?.result as any)?.operation || operation;
 
     res.status(200).json({
-      success: workflowResponse?.result?.success ?? true,
+      success: (workflowResponse?.result as any)?.success ?? true,
       message: `Sync execution complete; Medusa product ${medusaOperation}.`,
       operation: operation,
       medusaOperation,

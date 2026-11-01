@@ -26,10 +26,7 @@ import { createFreshInventoryStep } from "./steps/create-fresh-inventory";
 import { batchSyncStep } from "./steps/batch-sync-step";
 import { deleteCatalogItemStep } from "./steps/delete-catalog-item";
 import { mapSanityToMedusaProduct } from "./utils/mappers";
-import "./hooks/before-product-delete";
-import "./hooks/before-category-delete";
-// import "./hooks/on-product-mutation";
-// import "./hooks/on-category-mutation";
+
 
 interface UpdateBranchTransformInput {
   input: SanitySyncWorkflowInput;
@@ -148,15 +145,22 @@ export const sanitySyncProductWorkflow = createWorkflow(
     );
 
     const lookupParams = transform(
-      { input, variantSku: variantSkuToken, isSingleUpsert },
-      (data) => ({
-        productSlug: data.isSingleUpsert
-          ? (data.input.productData?.slug ?? "")
-          : "bypass-slug",
-        variantSku: data.variantSku,
-      }),
-    );
+  { input, variantSku: variantSkuToken, isSingleUpsert },
+  (data) => {
+    const rawSlug = data.input.productData?.slug;
+    const cleanSlug =
+      typeof rawSlug === "object" && rawSlug !== null && "current" in rawSlug
+        ? (rawSlug as any).current
+        : typeof rawSlug === "string"
+        ? rawSlug
+        : "";
 
+    return {
+      productSlug: data.isSingleUpsert && cleanSlug ? cleanSlug : "bypass-slug",
+      variantSku: data.variantSku,
+    };
+  },
+);
     const inspection = inspectExistingProductStep(lookupParams);
 
     const isUpdateOp = transform(
@@ -249,11 +253,6 @@ export const sanitySyncProductWorkflow = createWorkflow(
                 categories: data.resolvedCategoryIds.map((id: string) => ({
                   id,
                 })),
-                variants: [
-                  {
-                    id: data.inspection.variantId!,
-                  },
-                ],
                 metadata: {
                   ...incomingMeta,
                   sanity_id: realSanityId,

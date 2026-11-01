@@ -86,6 +86,14 @@ const config = defineConfig({
         ],
       },
     },
+     {
+      resolve: "./src/modules/sanity-sync",
+      options: {
+        project_id: process.env.SANITY_STUDIO_PROJECT_ID,
+        api_token: process.env.SANITY_API_TOKEN,
+        dataset: process.env.SANITY_STUDIO_DATASET || "",
+      },
+    },
     {
       resolve: "@medusajs/medusa/payment",
       options: {
