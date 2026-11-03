@@ -42,6 +42,28 @@ export interface SanityImagePayload extends Partial<HttpTypes.AdminProductImage>
   alt_ar?: string;
 }
 
+export interface SanityVariantOptionInput {
+  title: string;
+  values: string[];
+}
+
+export interface SanityVariantPayload {
+  _key?: string;
+  variantId?: string;
+  medusa_variant_id?: string;
+  sku?: string;
+  title?: string;
+  optionValues?: Array<{ option: string; value: string }>;
+  options?: Record<string, string> | Array<{ option: string; value: string }>;
+  images?: SanityImagePayload[];
+  description?: string | SanityLocalizedString;
+  details?: string | SanityLocalizedString;
+  badge?: string | SanityLocalizedString;
+  colorHex?: string;
+  swatchImage?: SanityRawImageInput;
+  metadata?: Record<string, unknown>;
+}
+
 export interface SanityRawImageInput {
   _type?: string;
   asset?: {
@@ -50,6 +72,7 @@ export interface SanityRawImageInput {
   };
   _key?: string;
   url?: string;
+  alt?: string | SanityLocalizedString;
   alt_en?: string;
   alt_fr?: string;
   alt_ar?: string;
@@ -94,6 +117,13 @@ export interface SanityProductPayload {
   stockCount?: number;
   metadata: Record<string, unknown> & { sanity_id: string; is_sync_origin: "sanity" };
   categories: SanityCategoryPayload[];
+  variantOptions?: SanityVariantOptionInput[];
+  variants?: SanityVariantPayload[];
+  syncFieldsPresent?: {
+    tags: boolean;
+    images: boolean;
+    variants: boolean;
+  };
   manage_inventory?: boolean;
   allow_backorder?: boolean;
   inspection?: {
@@ -106,9 +136,10 @@ export interface SanityProductPayload {
 
 export interface SanityRawProductInput extends Omit<  
   Partial<SanityProductPayload>,
-  "images" | "categories" | "slug"
+  "images" | "categories" | "slug" | "variants"
 > {
   _id: string;
+  _type?: string;
   slug?: { current: string } | string;
   pricing?: {
     dzd?: number;
@@ -121,6 +152,10 @@ export interface SanityRawProductInput extends Omit<
   heightMm?: number,
   updatedBy?: string;
   images?: SanityRawImageInput[];
+  variantOptions?: SanityVariantOptionInput[];
+  variants?: Array<
+    Omit<SanityVariantPayload, "images"> & { images?: SanityRawImageInput[] }
+  >;
   categories?: (SanityRawCategoryInput | string)[];
 }
 
@@ -144,6 +179,25 @@ export interface ProductInspectionDTO {
   productId?: string;
   inventoryItemId?: string;
   variantId?: string;
+  title?: string;
+  description?: string;
+  originCountry?: string | null;
+  subtitle?: string | null;
+  metadata?: Record<string, unknown> | null;
+  variantImageLinks?: Array<{
+    variantId: string;
+    imageIds: string[];
+  }>;
+  variants?: Array<{
+    id: string;
+    sku?: string | null;
+    origin_country?: string | null;
+    metadata?: Record<string, unknown> | null;
+    options?: Array<{
+      value?: string | null;
+      option?: { title?: string | null } | null;
+    }>;
+  }>;
 }
 
 export interface SyncWorkflowResult {

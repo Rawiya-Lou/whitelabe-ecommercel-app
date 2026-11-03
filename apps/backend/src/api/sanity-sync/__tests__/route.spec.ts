@@ -1,11 +1,19 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { createHmac } from "node:crypto";
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils";
 import { POST } from "../route";
 
 const mockWorkflowRun = vi.fn();
+const mockCategoryWorkflowRun = vi.fn();
 vi.mock("../../../workflows/sanity-sync", () => ({
   sanitySyncProductWorkflow: vi.fn(() => ({
     run: mockWorkflowRun,
+  })),
+}));
+
+vi.mock("../../../workflows/sanity-sync/category-workflow", () => ({
+  sanitySyncCategoryWorkflow: vi.fn(() => ({
+    run: mockCategoryWorkflowRun,
   })),
 }));
 
@@ -14,6 +22,10 @@ vi.mock("../../../utils/sync-lock", () => ({
     isLocked: vi.fn(),
     acquire: vi.fn(),
     release: vi.fn(),
+    complete: vi.fn(),
+    matches: vi.fn(),
+    mark: vi.fn(),
+    consume: vi.fn(),
   },
 }));
 
@@ -57,7 +69,7 @@ describe("Sanity Webhook Ingestion Route (POST /sanity-sync)", () => {
 
     mockReq = {
       headers: {
-        "x-sanity-sync-token": "valid-secret-token",
+        "x-sanity-sync-token": "",
       },
       query: {},
       body: {},
@@ -71,19 +83,40 @@ describe("Sanity Webhook Ingestion Route (POST /sanity-sync)", () => {
       },
       _releaseSyncLock: vi.fn(),
     };
+    let requestBody: unknown;
+    Object.defineProperty(mockReq, "body", {
+      get: () => requestBody,
+      set: (body: unknown) => {
+        requestBody = body;
+        const serializedBody = JSON.stringify(body);
+        mockReq.rawBody = Buffer.from(serializedBody);
+        mockReq.headers["x-sanity-sync-token"] = "valid-secret-token";
+      },
+    });
+    mockReq.body = {};
 
     mockRes = {
-      status: vi.fn().mockReturnThis(),
+      status: vi.fn(function (this: any, statusCode: number) {
+        this.statusCode = statusCode;
+        return this;
+      }),
       json: vi.fn().mockReturnThis(),
       send: vi.fn().mockReturnThis(),
     };
 
     vi.mocked(syncLock.isLocked).mockResolvedValue(false);
-    vi.mocked(syncLock.acquire).mockResolvedValue(undefined);
+    vi.mocked(syncLock.matches).mockResolvedValue(false);
+    vi.mocked(syncLock.acquire).mockResolvedValue("lease-token");
     vi.mocked(syncLock.release).mockResolvedValue(undefined);
+    vi.mocked(syncLock.complete).mockResolvedValue(undefined);
+    vi.mocked(syncLock.mark).mockResolvedValue(undefined);
+    vi.mocked(syncLock.consume).mockResolvedValue(undefined);
 
     mockWorkflowRun.mockResolvedValue({
       result: { success: true, operation: "updated" },
+    });
+    mockCategoryWorkflowRun.mockResolvedValue({
+      result: { id: "pcat_test", created: true },
     });
   });
 
@@ -94,6 +127,7 @@ describe("Sanity Webhook Ingestion Route (POST /sanity-sync)", () => {
   describe("Security & Authentication", () => {
     it("should return 401 Unauthorized if auth token is missing", async () => {
       mockReq.headers["x-sanity-sync-token"] = undefined;
+      mockReq.headers["sanity-webhook-signature"] = undefined;
 
       await POST(mockReq, mockRes);
 
@@ -110,6 +144,84 @@ describe("Sanity Webhook Ingestion Route (POST /sanity-sync)", () => {
       expect(mockRes.send).toHaveBeenCalledWith("Unauthorized");
     });
 
+    it("should accept the configured x-sanity-sync-token directly", async () => {
+      mockReq.body = {
+        event: "product.updated",
+        _id: "prod_123",
+      };
+
+      await POST(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ syncStatus: "ignored" }),
+      );
+    });
+
+    it("should accept a correctly signed Sanity webhook signature", async () => {
+      const serializedBody = JSON.stringify({
+        event: "product.updated",
+        _id: "prod_123",
+      });
+      mockReq.body = JSON.parse(serializedBody);
+      mockReq.headers["x-sanity-sync-token"] = undefined;
+      mockReq.headers["sanity-webhook-signature"] = createHmac(
+        "sha256",
+        "valid-secret-token",
+      )
+        .update(serializedBody)
+        .digest("hex");
+
+      await POST(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ syncStatus: "ignored" }),
+      );
+    });
+
+    it("should acknowledge Medusa-originated webhook echoes using the marker", async () => {
+      vi.mocked(syncLock.consume).mockResolvedValueOnce("correlation-id");
+      mockReq.body = {
+        _id: "product_doc",
+        _type: "product",
+      };
+
+      await POST(mockReq, mockRes);
+
+      expect(syncLock.consume).toHaveBeenCalledWith(
+        "sanity-echo:product_doc",
+      );
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          syncStatus: "ignored",
+          message: "Acknowledged Medusa-originated Sanity mutation.",
+        }),
+      );
+      expect(mockWorkflowRun).not.toHaveBeenCalled();
+    });
+
+    it("should reject a body changed after its signature was generated", async () => {
+      mockReq.body = {
+        _id: "doc_signed",
+        _type: "product",
+      };
+      mockReq.headers["sanity-webhook-signature"] = createHmac(
+        "sha256",
+        "valid-secret-token",
+      )
+        .update(mockReq.rawBody)
+        .digest("hex");
+      mockReq.headers["x-sanity-sync-token"] = undefined;
+      mockReq.rawBody = Buffer.from('{"_id":"doc_forged","_type":"product"}');
+
+      await POST(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(401);
+      expect(mockWorkflowRun).not.toHaveBeenCalled();
+    });
+
     it("should return 500 if SANITY_PROJECT_ID is missing", async () => {
       delete process.env.SANITY_STUDIO_PROJECT_ID;
       delete process.env.SANITY_PROJECT_ID;
@@ -122,6 +234,117 @@ describe("Sanity Webhook Ingestion Route (POST /sanity-sync)", () => {
       expect(mockRes.json).toHaveBeenCalledWith(
         expect.objectContaining({ error: expect.any(String) }),
       );
+    });
+
+    describe("Idempotency", () => {
+      it("should acknowledge a repeated identical payload without rerunning workflows", async () => {
+        mockReq.body = {
+          _type: "category",
+          _id: "cat_idempotent",
+          title: "Idempotent",
+          slug: { current: "idempotent" },
+        };
+        mockReq.headers["sanity-webhook-id"] = "hook-config-id";
+        vi.mocked(syncLock.matches)
+          .mockResolvedValueOnce(false)
+          .mockResolvedValueOnce(true);
+
+        await POST(mockReq, mockRes);
+        expect(mockCategoryWorkflowRun).toHaveBeenCalledTimes(1);
+
+        mockRes.statusCode = 200;
+        await POST(mockReq, mockRes);
+
+        expect(mockRes.status).toHaveBeenLastCalledWith(200);
+        expect(mockRes.json).toHaveBeenLastCalledWith(
+          expect.objectContaining({ syncStatus: "unchanged" }),
+        );
+        expect(mockCategoryWorkflowRun).toHaveBeenCalledTimes(1);
+      });
+
+      it("should process later revisions delivered by the same Sanity webhook", async () => {
+        mockReq.headers["sanity-webhook-id"] = "same-hook-configuration";
+        mockReq.body = {
+          _type: "category",
+          _id: "cat_later_revision",
+          _rev: "revision-1",
+          title: "First title",
+          slug: { current: "later-revision" },
+        };
+        await POST(mockReq, mockRes);
+
+        mockReq.body = {
+          _type: "category",
+          _id: "cat_later_revision",
+          _rev: "revision-2",
+          title: "Updated title",
+          slug: { current: "later-revision" },
+        };
+        mockRes.statusCode = 200;
+        await POST(mockReq, mockRes);
+
+        expect(mockCategoryWorkflowRun).toHaveBeenCalledTimes(2);
+        expect(mockRes.status).toHaveBeenLastCalledWith(200);
+      });
+    });
+
+    describe("Batch ingestion", () => {
+      it("should route category batches through the category workflow", async () => {
+        mockReq.body = {
+          operation: "batch",
+          documentType: "category",
+          batchCategories: [
+            {
+              _id: "cat_batch_1",
+              title: { en: "Batch category" },
+              slug: { current: "batch-category" },
+            },
+          ],
+        };
+
+        await POST(mockReq, mockRes);
+
+        expect(mockCategoryWorkflowRun).toHaveBeenCalledWith(
+          expect.objectContaining({
+            input: expect.objectContaining({
+              sanityId: "cat_batch_1",
+              handle: "batch-category",
+            }),
+          }),
+        );
+        expect(mockRes.status).toHaveBeenCalledWith(200);
+      });
+
+      it("should route product batches through the inbound product workflow", async () => {
+        mockReq.body = {
+          operation: "batch",
+          documentType: "product",
+          batchProducts: [
+            {
+              _id: "prod_batch_1",
+              title: { en: "Batch product" },
+              slug: { current: "batch-product" },
+              categories: [{ _ref: "cat_batch_1" }],
+            },
+          ],
+        };
+        mockQueryEngine.graph.mockResolvedValue({
+          data: [{ id: "pcat_batch_1", handle: "batch-category", name: "Batch category" }],
+        });
+
+        await POST(mockReq, mockRes);
+
+        expect(mockWorkflowRun).toHaveBeenCalledWith({
+          input: expect.objectContaining({
+            operation: "create",
+            productData: expect.objectContaining({
+              _id: "prod_batch_1",
+              slug: "batch-product",
+            }),
+          }),
+        });
+        expect(mockRes.status).toHaveBeenCalledWith(200);
+      });
     });
   });
 
@@ -141,26 +364,96 @@ describe("Sanity Webhook Ingestion Route (POST /sanity-sync)", () => {
       expect(mockWorkflowRun).not.toHaveBeenCalled();
     });
 
-    it("should block echo if the mutation originated from Medusa (medusa-sync lock active)", async () => {
+    it("should ignore recent Medusa-originated webhook echoes", async () => {
+      vi.mocked(syncLock.consume).mockResolvedValueOnce("correlation-id");
       mockReq.body = {
-        _id: "doc_test_123",
-        _type: "product",
-        title: "Test Kaftan",
+        _id: "cat_test_123",
+        _type: "category",
+        documentType: "category",
+        updatedBy: "medusa",
+        title: "Medusa category",
+        slug: "medusa-category",
       };
 
-      vi.mocked(syncLock.isLocked).mockImplementation(async (key: string) => {
-        return key === "medusa-sync:doc_test_123";
+      await POST(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        syncStatus: "ignored",
+        message: "Acknowledged Medusa-originated Sanity mutation.",
+      });
+      expect(syncLock.consume).toHaveBeenCalledWith(
+        "sanity-echo:cat_test_123",
+      );
+      expect(mockCategoryWorkflowRun).not.toHaveBeenCalled();
+      expect(mockWorkflowRun).not.toHaveBeenCalled();
+    });
+
+    it("should process a later product edit despite a stale Medusa origin marker", async () => {
+      mockReq.body = {
+        _id: "sanity-product-stale-origin",
+        _type: "product",
+        updatedBy: "medusa",
+        title: { en: "Human edited product" },
+        slug: { current: "human-edited-product" },
+        categories: [{ _ref: "cat_existing" }],
+      };
+      mockQueryEngine.graph.mockImplementation(async ({ entity }: any) => {
+        if (entity === "product_category") {
+          return {
+            data: [
+              {
+                id: "pcat_existing",
+                handle: "existing",
+                name: "Existing",
+              },
+            ],
+          };
+        }
+        return { data: [] };
       });
 
       await POST(mockReq, mockRes);
 
-      expect(syncLock.release).toHaveBeenCalledWith("medusa-sync:doc_test_123");
+      expect(mockWorkflowRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          input: expect.objectContaining({
+            productData: expect.objectContaining({
+              title: "Human edited product",
+            }),
+          }),
+        }),
+      );
       expect(mockRes.status).toHaveBeenCalledWith(200);
-      expect(mockRes.json).toHaveBeenCalledWith({
-        success: true,
-        message: "Loop echo blocked",
-      });
-      expect(mockWorkflowRun).not.toHaveBeenCalled();
+    });
+
+    it("should not block a Sanity update because a recent outbound marker exists", async () => {
+      mockReq.body = {
+        _id: "cat_recent_outbound",
+        _type: "category",
+        documentType: "category",
+        updatedBy: "sanity",
+        title: "Updated from Sanity",
+        slug: "updated-from-sanity",
+      };
+      vi.mocked(syncLock.isLocked).mockResolvedValue(true);
+
+      await POST(mockReq, mockRes);
+
+      expect(mockCategoryWorkflowRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          input: expect.objectContaining({
+            sanityId: "cat_recent_outbound",
+            handle: "updated-from-sanity",
+          }),
+        }),
+      );
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "Category sync complete" }),
+      );
+      expect(syncLock.isLocked).not.toHaveBeenCalled();
     });
   });
 
@@ -219,18 +512,15 @@ describe("Sanity Webhook Ingestion Route (POST /sanity-sync)", () => {
 
       await POST(mockReq, mockRes);
 
-      expect(
-        mockProductModuleService.createProductCategories,
-      ).toHaveBeenCalledWith([
-        expect.objectContaining({
+      expect(mockCategoryWorkflowRun).toHaveBeenCalledWith({
+        input: expect.objectContaining({
           name: "Summer Collection",
           handle: "summer-collection",
-          is_active: true,
           metadata: expect.objectContaining({
             sanity_id: "cat_summer_collection",
           }),
         }),
-      ]);
+      });
       expect(mockRes.status).toHaveBeenCalledWith(200);
       expect(mockRes.json).toHaveBeenCalledWith(
         expect.objectContaining({ message: "Category sync complete" }),
@@ -257,40 +547,38 @@ describe("Sanity Webhook Ingestion Route (POST /sanity-sync)", () => {
 
       await POST(mockReq, mockRes);
 
-      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.status).toHaveBeenCalledWith(400);
       expect(mockRes.json).toHaveBeenCalledWith({
         success: false,
-        message: expect.stringContaining(
-          "Cannot delete a category with assigned products",
-        ),
+        message: "Cannot delete a category with assigned products",
       });
       expect(mockWorkflowRun).not.toHaveBeenCalled();
     });
   });
 
   describe("Product Deletion Handler", () => {
-    it("should intercept and block delete echo if medusa-delete lock is active", async () => {
+    it("should dispatch a valid delete while a recent outbound marker exists", async () => {
       mockReq.body = {
         _id: "doc_prod_to_delete",
         documentType: "product",
         action: "delete",
       };
-
-      vi.mocked(syncLock.isLocked).mockImplementation(async (key: string) => {
-        return key === "medusa-delete:doc_prod_to_delete";
+      vi.mocked(syncLock.isLocked).mockResolvedValue(true);
+      mockQueryEngine.graph.mockResolvedValue({
+        data: [{ id: "prod_to_delete", handle: "product-to-delete" }],
       });
 
       await POST(mockReq, mockRes);
 
-      expect(syncLock.release).toHaveBeenCalledWith(
-        "medusa-delete:doc_prod_to_delete",
-      );
-      expect(mockRes.status).toHaveBeenCalledWith(200);
-      expect(mockRes.json).toHaveBeenCalledWith({
-        success: true,
-        message: "Deletion echo blocked",
+      expect(mockWorkflowRun).toHaveBeenCalledWith({
+        input: expect.objectContaining({
+          operation: "delete",
+          documentType: "product",
+          deletionTargetId: "prod_to_delete",
+        }),
       });
-      expect(mockWorkflowRun).not.toHaveBeenCalled();
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(syncLock.isLocked).not.toHaveBeenCalled();
     });
 
     it("should lock target product and dispatch delete workflow when product exists", async () => {
@@ -307,8 +595,12 @@ describe("Sanity Webhook Ingestion Route (POST /sanity-sync)", () => {
       await POST(mockReq, mockRes);
 
       expect(syncLock.acquire).toHaveBeenCalledWith(
-        "sanity-delete:prod_medusa_999",
-        15,
+        expect.stringMatching(/^sanity-event:/),
+        86400,
+      );
+      expect(syncLock.acquire).toHaveBeenCalledWith(
+        "sanity-sync:product-doc_to_purge",
+        120,
       );
       expect(mockWorkflowRun).toHaveBeenCalledWith({
         input: expect.objectContaining({
@@ -336,7 +628,7 @@ describe("Sanity Webhook Ingestion Route (POST /sanity-sync)", () => {
       expect(mockRes.json).toHaveBeenCalledWith(
         expect.objectContaining({
           error: expect.stringContaining(
-            "references an existing Medusa category",
+            "existing Medusa category",
           ),
         }),
       );
@@ -358,6 +650,21 @@ describe("Sanity Webhook Ingestion Route (POST /sanity-sync)", () => {
         },
         slug: { current: "lajavel-perfume" },
         categories: [{ _ref: "cat_perfumes" }],
+        tags: ["Handmade", "Citrus"],
+        variants: [
+          {
+            _key: "variant-lajavel",
+            title: "Lajavel Standard",
+            options: [{ option: "Size", value: "Standard" }],
+            images: [
+              {
+                _key: "variant-lajavel-image",
+                asset: { _ref: "image-asset-dimensions-jpg" },
+                alt: { en: "Variant bottle" },
+              },
+            ],
+          },
+        ],
         images: [
           {
             url: "https://cdn.sanity.io/images/test/dev/perfume.jpg",
@@ -388,14 +695,14 @@ describe("Sanity Webhook Ingestion Route (POST /sanity-sync)", () => {
 
       // Verify lock acquired for Medusa product ID
       expect(syncLock.acquire).toHaveBeenCalledWith(
-        "sanity-sync:prod_01M5W9PXA9VBPRR94689HBEGDX",
-        15,
+        "sanity-sync:product-4a21732e-478b-4fc2-9d63-0c01c91dd461",
+        120,
       );
 
       // Verify standardized payload passed to workflow
       expect(mockWorkflowRun).toHaveBeenCalledWith({
         input: expect.objectContaining({
-          operation: "create",
+          operation: "update",
           documentType: "product",
           categoryIds: ["pcat_perfumes_123"],
           productData: expect.objectContaining({
@@ -406,27 +713,47 @@ describe("Sanity Webhook Ingestion Route (POST /sanity-sync)", () => {
             slug: "lajavel-perfume",
             metadata: expect.objectContaining({
               sanity_id: "4a21732e-478b-4fc2-9d63-0c01c91dd461",
+              tags: ["Handmade", "Citrus"],
+              variant_images: expect.objectContaining({
+                "variant-lajavel": [
+                  expect.objectContaining({
+                    url: expect.stringContaining("cdn.sanity.io/images"),
+                    alt: expect.objectContaining({ en: "Variant bottle" }),
+                  }),
+                ],
+              }),
               title_en: "Lajavel Perfume",
               title_fr: "Parfum Lajavel",
               title_ar: "عطر لاجافيل",
               description_en: "Artisanal citrus perfume.",
               description_fr: "Parfum artisanal aux agrumes.",
               description_ar: "عطر حمضيات حرفي فاخر.",
-              translations: {
-                en: {
+              translations: expect.objectContaining({
+                en: expect.objectContaining({
                   title: "Lajavel Perfume",
                   description: "Artisanal citrus perfume.",
-                },
-                fr: {
+                }),
+                fr: expect.objectContaining({
                   title: "Parfum Lajavel",
                   description: "Parfum artisanal aux agrumes.",
-                },
-                ar: {
+                }),
+                ar: expect.objectContaining({
                   title: "عطر لاجافيل",
                   description: "عطر حمضيات حرفي فاخر.",
-                },
-              },
+                }),
+              }),
             }),
+            variants: [
+              expect.objectContaining({
+                _key: "variant-lajavel",
+                options: [{ option: "Size", value: "Standard" }],
+                images: [
+                  expect.objectContaining({
+                    url: expect.stringContaining("cdn.sanity.io/images"),
+                  }),
+                ],
+              }),
+            ],
           }),
         }),
       });
@@ -437,6 +764,122 @@ describe("Sanity Webhook Ingestion Route (POST /sanity-sync)", () => {
           success: true,
           medusaOperation: "updated",
         }),
+      );
+    });
+
+    it("merges partial productData projections and preserves localized images and empty optional values", async () => {
+      mockReq.body = {
+        _id: "sanity-product-projection",
+        _type: "product",
+        title: { en: "Root product title" },
+        description: { en: "" },
+        material: { en: "" },
+        slug: { current: "projection-product" },
+        categories: [{ _ref: "cat_projection" }],
+        images: [
+          {
+            _key: "image-key",
+            asset: { _ref: "image-asset-dimensions-jpg" },
+            alt: {
+              en: "Front",
+              fr: "Devant",
+              ar: "أمام",
+            },
+          },
+        ],
+        productData: {
+          title: { en: "Nested product title" },
+          metadata: {
+            translations: {
+              en: {
+                description: "stale description",
+                material: "stale material",
+              },
+            },
+          },
+        },
+      };
+      mockQueryEngine.graph.mockImplementation(async ({ entity }: any) => {
+        if (entity === "product_category") {
+          return {
+            data: [
+              {
+                id: "pcat_projection",
+                handle: "projection",
+                name: "Projection",
+              },
+            ],
+          };
+        }
+        return { data: [] };
+      });
+
+      await POST(mockReq, mockRes);
+
+      expect(mockWorkflowRun).toHaveBeenCalledWith({
+        input: expect.objectContaining({
+          productData: expect.objectContaining({
+            title: "Nested product title",
+            description: "",
+            material: "",
+            categories: [
+              expect.objectContaining({ id: "pcat_projection" }),
+            ],
+            images: [
+              expect.objectContaining({
+                _key: "image-key",
+                url: expect.stringContaining("cdn.sanity.io/images"),
+                alt: "Front",
+                alt_fr: "Devant",
+                alt_ar: "أمام",
+              }),
+            ],
+          }),
+        }),
+      });
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+    });
+
+    it("ingests Sanity projections without document type or operation headers", async () => {
+      mockReq.headers["sanity-operation"] = undefined;
+      mockReq.body = {
+        _id: "sanity-product-minimal-projection",
+        productData: {
+          title: { en: "Minimal projection product" },
+          slug: { current: "minimal-projection-product" },
+          categories: [{ _ref: "cat_projection" }],
+        },
+      };
+      mockQueryEngine.graph.mockImplementation(async ({ entity }: any) => {
+        if (entity === "product_category") {
+          return {
+            data: [
+              {
+                id: "pcat_projection",
+                handle: "projection",
+                name: "Projection",
+              },
+            ],
+          };
+        }
+        return { data: [] };
+      });
+
+      await POST(mockReq, mockRes);
+
+      expect(mockWorkflowRun).toHaveBeenCalledWith({
+        input: expect.objectContaining({
+          operation: "create",
+          documentType: "product",
+          productData: expect.objectContaining({
+            _id: "sanity-product-minimal-projection",
+            title: "Minimal projection product",
+          }),
+        }),
+      });
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true }),
       );
     });
   });

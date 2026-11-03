@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { createHmac } from "node:crypto";
 import { loadEnv, MedusaError } from "@medusajs/framework/utils";
 
 loadEnv(process.env.NODE_ENV || "development", process.cwd());
@@ -15,12 +16,14 @@ const DATASET =
 
 const SANITY_TOKEN = process.env.SANITY_API_TOKEN;
 const MEDUSA_URL = process.env.MEDUSA_BACKEND_URL || "http://localhost:9000";
-const SECRET_TOKEN = process.env.SANITY_SYNC_SECRET_TOKEN || "development";
+const SECRET_TOKEN =
+  process.env.SANITY_WEBHOOK_SECRET || process.env.SANITY_SYNC_SECRET_TOKEN;
 
-if (!PROJECT_ID || !SANITY_TOKEN) {
+if (!PROJECT_ID || !SANITY_TOKEN || !SECRET_TOKEN) {
   console.error("✖ Missing required environment variables:");
   if (!PROJECT_ID) console.error("   - SANITY_PROJECT_ID is missing.");
   if (!SANITY_TOKEN) console.error("   - SANITY_API_TOKEN is missing (requires Write permissions).");
+  if (!SECRET_TOKEN) console.error("   - SANITY_WEBHOOK_SECRET is missing.");
   process.exit(1);
 }
 
@@ -92,15 +95,18 @@ async function postWebhookToMedusa(
   operation: "create" | "update" | "delete",
   docId: string
 ): Promise<{ status: number; body: any }> {
+  const serializedBody = JSON.stringify(payload);
   const response = await fetch(`${MEDUSA_URL}/sanity-sync`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-sanity-sync-token": SECRET_TOKEN,
+      "sanity-webhook-signature": createHmac("sha256", SECRET_TOKEN!)
+        .update(serializedBody)
+        .digest("hex"),
       "sanity-operation": operation,
       "sanity-document-id": docId,
     },
-    body: JSON.stringify(payload),
+    body: serializedBody,
   });
 
   let body: any;
@@ -307,10 +313,7 @@ async function main(): Promise<void> {
         fr: "100% Noyer Américain Massif et Laiton Brossé",
         ar: "خشب جوز أمريكي صلب 100% ونحاس أصفر مصقول",
       },
-      originCountry: "DZ",
-    
 
-      
       highlights: [
         {
           _key: `hl_1_${seed}`,

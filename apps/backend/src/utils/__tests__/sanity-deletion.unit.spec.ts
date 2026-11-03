@@ -45,7 +45,7 @@ describe("category deletion guard", () => {
         name: "Used",
         products: [{ id: "prod_1" }],
       }),
-    ).toThrow(/contains 1 product/);
+    ).toThrow("Cannot delete a category with assigned products");
   });
 });
 

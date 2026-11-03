@@ -9,6 +9,7 @@ import {
   IInventoryService,
   Logger,
 } from "@medusajs/framework/types";
+import { assertCategoryCanBeDeleted } from "../../../utils/product-category-delete-guard";
 
 interface DeleteCatalogItemInput {
   slug: string;
@@ -46,7 +47,7 @@ export const deleteCatalogItemStep = createStep(
 
       const { data: categories } = await query.graph({
         entity: "product_category",
-        fields: ["id", "handle", "products.id"],
+        fields: ["id", "name", "handle", "products.id"],
         filters: input.targetId
           ? { id: [input.targetId] }
           : { handle: [normalizedSlug] },
@@ -61,21 +62,8 @@ export const deleteCatalogItemStep = createStep(
         return new StepResponse<DeleteCatalogItemResult>({ deleted: false });
       }
 
-      // Prevent deletion if active products remain mapped to this category
-    if (targetCategory.products && targetCategory.products.length > 0) {
-        logger.info(
-          `[Sanity Sync Cleanup] Detaching ${targetCategory.products.length} product links from Category ID: [${targetCategory.id}] before database drop.`,
-        );
-        
-        const productIds = targetCategory.products.map((prod) => prod.id);
+      assertCategoryCanBeDeleted(targetCategory);
 
-        await productModuleService.updateProducts(
-          {id: productIds},
-          {category_ids: []},
-        );
-      }
-
-      // Complete structural category deletion safely
       await productModuleService.deleteProductCategories([targetCategory.id]);
       logger.info(`Category [${normalizedSlug}] successfully dropped.`);
 
@@ -109,7 +97,6 @@ export const deleteCatalogItemStep = createStep(
     const variantId = targetProduct.variants?.[0]?.id;
     const variantSku = targetProduct.variants?.[0]?.sku;
 
-    // Clear out Cross-Module Relationship Indexes safely via Remote Links
     if (variantId && variantSku) {
       const [inventoryItem] = await inventoryModuleService.listInventoryItems({
         sku: [variantSku],
@@ -131,7 +118,6 @@ export const deleteCatalogItemStep = createStep(
       }
     }
 
-    // Perform a safe deletion drop pass on the base product entity record
     await productModuleService.deleteProducts([targetProduct.id]);
     logger.info(
       `Deletion Cascade complete for product handle: [${normalizedSlug}]`,

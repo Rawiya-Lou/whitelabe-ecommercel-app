@@ -13,7 +13,7 @@ export function assertCategoryCanBeDeleted(
   if (productCount === 0) return;
 
   throw new MedusaError(
-    MedusaError.Types.NOT_ALLOWED,
-    `Cannot delete category "${category.name}" while it contains ${productCount} product(s). Remove or reassign those products first.`,
+    MedusaError.Types.INVALID_DATA,
+    "Cannot delete a category with assigned products",
   );
 }

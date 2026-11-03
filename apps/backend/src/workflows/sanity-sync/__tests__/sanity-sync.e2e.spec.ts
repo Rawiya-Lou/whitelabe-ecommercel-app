@@ -5,7 +5,9 @@ loadEnv("test", process.cwd());
 
 const BASE_URL = process.env.TEST_BASE_URL || "http://127.0.0.1:9000";
 const SYNC_URL = `${BASE_URL}/sanity-sync`;
-const VALID_SECRET = process.env.SANITY_SYNC_SECRET_TOKEN || "development";
+const VALID_SECRET =
+  process.env.SANITY_SYNC_SECRET_TOKEN ||
+  process.env.SANITY_WEBHOOK_SECRET;
 
 interface SyncResponseDTO {
   success?: boolean;
@@ -35,9 +37,10 @@ describe("Sanity CMS Sync Engine - Professional E2E Lifecycle Suite", () => {
     payload: Record<string, unknown>,
     options: {
       secret?: string | null;
-      operation?: string;
+      operation?: string | null;
       docId?: string;
       perspective?: string;
+      webhookId?: string;
     } = {},
   ): Promise<{ status: number; data: SyncResponseDTO }> {
     const {
@@ -45,14 +48,19 @@ describe("Sanity CMS Sync Engine - Professional E2E Lifecycle Suite", () => {
       operation = "create",
       docId,
       perspective,
+      webhookId,
     } = options;
 
+    const body = JSON.stringify(payload);
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      "sanity-operation": operation,
     };
 
-    if (secret) headers["x-sanity-sync-token"] = secret;
+    if (operation) headers["sanity-operation"] = operation;
+    if (webhookId) headers["sanity-webhook-id"] = webhookId;
+    if (secret) {
+      headers["x-sanity-sync-token"] = secret;
+    }
     if (docId) headers["sanity-document-id"] = docId;
 
     let targetUrl = SYNC_URL;
@@ -63,7 +71,7 @@ describe("Sanity CMS Sync Engine - Professional E2E Lifecycle Suite", () => {
     const response = await fetch(targetUrl, {
       method: "POST",
       headers,
-      body: JSON.stringify(payload),
+      body,
     });
 
     let data: SyncResponseDTO = {};
@@ -77,6 +85,12 @@ describe("Sanity CMS Sync Engine - Professional E2E Lifecycle Suite", () => {
     return { status: response.status, data };
   }
   beforeAll(async () => {
+    if (!VALID_SECRET) {
+      throw new Error(
+        "Set SANITY_SYNC_SECRET_TOKEN or SANITY_WEBHOOK_SECRET to the same value used by the running Medusa server.",
+      );
+    }
+
     const { status, data } = await dispatchWebhook(
       {
         _type: "category",
@@ -142,7 +156,7 @@ describe("Sanity CMS Sync Engine - Professional E2E Lifecycle Suite", () => {
 
       expect(status).toBe(200);
       expect(data.syncStatus).toBe("ignored");
-      expect(data.message).toContain("Background execution loop bypassed");
+      expect(data.message).toContain("Non-Sanity webhook event ignored");
     });
   });
 
@@ -203,13 +217,11 @@ describe("Sanity CMS Sync Engine - Professional E2E Lifecycle Suite", () => {
 
       expect(status).toBe(400);
       expect(data.success).toBe(false);
-      expect(data.error).toContain("references an existing Medusa category");
+      expect(data.error).toContain("Product references must resolve to an existing Medusa category.");
     });
 
     it("should ingest product with multilingual fields, CDN images, and physical specs", async () => {
       const newProductPayload = {
-        _type: "product",
-        documentType: "product",
         _id: identity.productId,
         productData: {
           _id: identity.productId,
@@ -235,6 +247,7 @@ describe("Sanity CMS Sync Engine - Professional E2E Lifecycle Suite", () => {
               _ref: identity.categoryId,
             },
           ],
+          tags: ["Handmade", "Test"],
           images: [
             {
               _key: "img_desk_01",
@@ -245,12 +258,29 @@ describe("Sanity CMS Sync Engine - Professional E2E Lifecycle Suite", () => {
               alt_ar: "المنظر الرئيسي للمكتب",
             },
           ],
+          variantOptions: [
+            { title: "Finish", values: ["Natural Oak"] },
+          ],
+          variants: [
+            {
+              _key: "variant_natural_oak",
+              variantId: "sanity_variant_natural_oak",
+              title: "Natural Oak",
+              options: [{ option: "Finish", value: "Natural Oak" }],
+              images: [
+                {
+                  _key: "variant_oak_image",
+                  url: "https://cdn.sanity.io/images/project/dev/desk-oak.jpg",
+                  alt: { en: "Natural oak finish" },
+                },
+              ],
+            },
+          ],
         },
       };
-
       const { status, data } = await dispatchWebhook(newProductPayload, {
-        operation: "create",
-        docId: identity.productId,
+        operation: null,
+        webhookId: "stable-sanity-hook-config",
       });
 
       expect(status).toBe(200);
@@ -284,22 +314,15 @@ describe("Sanity CMS Sync Engine - Professional E2E Lifecycle Suite", () => {
               slug: identity.categorySlug,
             },
           ],
+          tags: ["Handmade", "Updated"],
         },
       };
 
-      let { status, data } = await dispatchWebhook(updatePayload, {
+      const { status, data } = await dispatchWebhook(updatePayload, {
         operation: "update",
         docId: identity.productId,
+        webhookId: "stable-sanity-hook-config",
       });
-
-      if (data.message === "Loop echo blocked") {
-        const retry = await dispatchWebhook(updatePayload, {
-          operation: "update",
-          docId: identity.productId,
-        });
-        status = retry.status;
-        data = retry.data;
-      }
 
       expect(status).toBe(200);
       expect(data.success).toBe(true);
@@ -319,7 +342,7 @@ describe("Sanity CMS Sync Engine - Professional E2E Lifecycle Suite", () => {
         { operation: "delete", docId: identity.categoryId },
       );
 
-      expect(status).toBe(200);
+      expect(status).toBe(400);
       expect(data.success).toBe(false);
       expect(data.message).toContain(
         "Cannot delete a category with assigned products",

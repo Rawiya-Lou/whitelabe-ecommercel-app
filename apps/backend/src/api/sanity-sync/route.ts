@@ -1,7 +1,9 @@
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
-import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils";
-import { Logger, IProductModuleService } from "@medusajs/framework/types";
+import { ContainerRegistrationKeys } from "@medusajs/framework/utils";
+import { Logger } from "@medusajs/framework/types";
 import { sanitySyncProductWorkflow } from "../../workflows/sanity-sync";
+import { sanitySyncCategoryWorkflow } from "../../workflows/sanity-sync/category-workflow";
 import {
   SanitySyncWorkflowInput,
   SanityProductPayload,
@@ -31,11 +33,16 @@ interface SanitySyncWebhookPayload extends Partial<SanityRawProductInput> {
   _deleted?: boolean;
   deleted?: boolean;
   _updatedBy?: string;
+  _rev?: string;
   updatedBy?: string;
+  syncOrigin?: string;
   _perspectives?: string | string[];
   documentType?: string;
   _type?: string;
   documentIds?: unknown;
+  batchProducts?: unknown;
+  batchCategories?: unknown;
+  documents?: unknown;
   productData?: SanityRawProductInput;
   mutations?: Array<{
     patch?: {
@@ -49,7 +56,7 @@ interface SanitySyncWebhookPayload extends Partial<SanityRawProductInput> {
 }
 
 interface AuthenticatedSyncRequest extends MedusaRequest<SanitySyncWebhookPayload> {
-  _releaseSyncLock?: () => void;
+  rawBody?: Buffer | string;
 }
 
 type OperationTypes = "update" | "create" | "batch" | "delete";
@@ -62,6 +69,20 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const getString = (value: unknown): string | undefined =>
   typeof value === "string" ? value : undefined;
+
+const getLocalizedText = (
+  value: unknown,
+  language: "en" | "fr" | "ar",
+): string => {
+  if (isRecord(value)) {
+    return (
+      getString(value[language])?.trim() ||
+      getString(value[`_${language}`])?.trim() ||
+      ""
+    );
+  }
+  return language === "en" ? getString(value)?.trim() || "" : "";
+};
 
 const getWebhookOperation = (
   payload: SanitySyncWebhookPayload,
@@ -163,8 +184,6 @@ const getSafeImageUrl = (
 const BASE_URL = process.env.BACKEND_URL;
 const DEFAULT_FALLBACK =
   process.env.SANITY_IMAGE_FALLBACK_URL || `${BASE_URL}/static/placeholder.png`;
-const activeSyncQueues = new Map<string, Promise<void>>();
-
 const getSanityCdnUrl = (
   refId: string,
   projectId: string,
@@ -193,29 +212,77 @@ export async function POST(
 ): Promise<void> {
   const logger = req.scope.resolve(ContainerRegistrationKeys.LOGGER) as Logger;
   const queryEngine = req.scope.resolve(ContainerRegistrationKeys.QUERY);
-  const productModuleService = req.scope.resolve(
-    Modules.PRODUCT,
-  ) as IProductModuleService;
 
-  const authToken = req.headers["x-sanity-sync-token"] as string | undefined;
+  let eventLease: { key: string; token: string } | undefined;
+  const syncLeases: Array<{ key: string; token: string }> = [];
+  const documentFingerprints: Array<{ key: string; value: string }> = [];
 
   const projectId =
     process.env.SANITY_PROJECT_ID || process.env.SANITY_STUDIO_PROJECT_ID;
 
   const dataset =
-    process.env.SANITY_DATASET ||
-    process.env.SANITY_STUDIO_DATASET ||
-    "production";
+    process.env.SANITY_DATASET || process.env.SANITY_STUDIO_DATASET || "";
 
   const imgFallbackUrl = DEFAULT_FALLBACK;
-  const configuredSyncToken = process.env.SANITY_SYNC_SECRET_TOKEN;
+  const tokenHeader = req.headers["x-sanity-sync-token"];
+  const suppliedToken = Array.isArray(tokenHeader)
+    ? tokenHeader[0]
+    : tokenHeader;
+  const signatureHeader = req.headers["sanity-webhook-signature"];
+  const signature = Array.isArray(signatureHeader)
+    ? signatureHeader[0]
+    : signatureHeader;
+  const tokenSecret =
+    process.env.SANITY_SYNC_SECRET_TOKEN || process.env.SANITY_WEBHOOK_SECRET;
+  const webhookSecret =
+    process.env.SANITY_WEBHOOK_SECRET || process.env.SANITY_SYNC_SECRET_TOKEN;
+  const rawBody = req.rawBody;
+  const rawBodyString =
+    typeof rawBody === "string" ? rawBody : rawBody?.toString("utf8");
+  const requestFingerprint = rawBodyString
+    ? createHash("sha256").update(rawBodyString).digest("hex")
+    : undefined;
+  const constantTimeEqual = (supplied: string, expected: string): boolean => {
+    const suppliedBuffer = Buffer.from(supplied);
+    const expectedBuffer = Buffer.from(expected);
+    return (
+      suppliedBuffer.length === expectedBuffer.length &&
+      timingSafeEqual(suppliedBuffer, expectedBuffer)
+    );
+  };
   const isValidToken =
-    authToken &&
-    (configuredSyncToken
-      ? authToken === configuredSyncToken
-      : process.env.NODE_ENV !== "production" && authToken === "development");
+    Boolean(suppliedToken && tokenSecret) &&
+    constantTimeEqual(suppliedToken || "", tokenSecret || "");
+  let isValidSignature = false;
 
-  if (!isValidToken) {
+  if (signature && webhookSecret && rawBodyString !== undefined) {
+    const suppliedSignature = signature.replace(/^sha256=/i, "");
+    if (/^[\da-f]{64}$/i.test(suppliedSignature)) {
+      const expectedSignature = createHmac("sha256", webhookSecret)
+        .update(rawBodyString)
+        .digest("hex");
+      isValidSignature = constantTimeEqual(
+        suppliedSignature,
+        expectedSignature,
+      );
+    }
+  }
+
+  if (!tokenSecret && !webhookSecret) {
+    logger.error(
+      "[Sanity Sync Hook] Webhook signing secret is not configured.",
+    );
+    res.status(500).json({ error: "Webhook signing is not configured." });
+    return;
+  }
+
+  if (!rawBodyString) {
+    logger.warn("[Sanity Sync Hook] Request is missing its raw body.");
+    res.status(400).json({ error: "A raw request body is required." });
+    return;
+  }
+
+  if (!isValidToken && !isValidSignature) {
     logger.warn(
       "[Sanity Sync Hook] Unauthorized Sanity CMS Sync Attempt Blocked.",
     );
@@ -234,42 +301,56 @@ export async function POST(
   }
 
   try {
-    const rawPayload = req.body;
+    const requestBody: unknown = req.body;
+    if (!isRecord(requestBody)) {
+      res.status(400).json({ error: "Webhook payload must be a JSON object." });
+      return;
+    }
+    const rawPayload = requestBody as unknown as SanitySyncWebhookPayload;
 
     const sanityOperationHeader = req.headers["sanity-operation"];
     const sanityDocumentIdHeader = req.headers["sanity-document-id"];
 
-    const sanityDocumentId = Array.isArray(sanityDocumentIdHeader)
-      ? sanityDocumentIdHeader[0]
-      : sanityDocumentIdHeader;
+    const sanityDocumentId = getString(
+      Array.isArray(sanityDocumentIdHeader)
+        ? sanityDocumentIdHeader[0]
+        : sanityDocumentIdHeader,
+    );
 
     const sanityOperation = Array.isArray(sanityOperationHeader)
       ? sanityOperationHeader[0]
       : sanityOperationHeader;
 
+    const nestedProduct = isRecord(rawPayload.productData)
+      ? rawPayload.productData
+      : undefined;
     const uncheckedBody = rawPayload as Record<string, any>;
-    const incomingId: string =
-      uncheckedBody._id || uncheckedBody.productData?._id || "";
+    const incomingId =
+      getString(nestedProduct?._id) || getString(uncheckedBody._id) || "";
 
     const isBackgroundEchoWebhook =
       uncheckedBody.event === "product.updated" ||
-      uncheckedBody.action === "sync" ||
-      (!rawPayload.documentType && !rawPayload._type && !sanityOperationHeader);
+      (uncheckedBody.action === "sync" && !incomingId);
 
     if (isBackgroundEchoWebhook) {
-      if (typeof req._releaseSyncLock === "function") {
-        req._releaseSyncLock();
-      }
       res.status(200).json({
         success: true,
         syncStatus: "ignored",
-        message: "Background execution loop bypassed during integration tests.",
+        message: "Non-Sanity webhook event ignored.",
       });
       return;
     }
 
-    const incomingCmsProduct: Partial<SanityRawProductInput> =
-      rawPayload.productData || rawPayload;
+    const incomingCmsProduct: Partial<SanityRawProductInput> = nestedProduct
+      ? ({
+          ...rawPayload,
+          ...nestedProduct,
+          metadata: {
+            ...(isRecord(rawPayload.metadata) ? rawPayload.metadata : {}),
+            ...(isRecord(nestedProduct.metadata) ? nestedProduct.metadata : {}),
+          },
+        } as Partial<SanityRawProductInput>)
+      : rawPayload;
 
     const documentId: string =
       sanityDocumentId || incomingCmsProduct?._id || rawPayload?._id || "";
@@ -289,21 +370,33 @@ export async function POST(
       resolvedRequestContextOperation === "delete" ||
       rawPayload.action === "delete" ||
       rawPayload._action === "delete";
+    const documentType =
+      rawPayload.documentType ||
+      (incomingCmsProduct._type === "category" ? "category" : "product");
 
-    if (!isDeletion) {
-      const isCleanIdLocked = await syncLock.isLocked(`medusa-sync:${cleanId}`);
-      const isDocIdLocked = await syncLock.isLocked(`medusa-sync:${documentId}`);
+    if (cleanId && (await syncLock.consume(`sanity-echo:${cleanId}`))) {
+      res.status(200).json({
+        success: true,
+        syncStatus: "ignored",
+        message: "Acknowledged Medusa-originated Sanity mutation.",
+      });
+      return;
+    }
 
-      if (isCleanIdLocked || isDocIdLocked) {
-        await syncLock.release(`medusa-sync:${cleanId}`);
-        await syncLock.release(`medusa-sync:${documentId}`);
-        logger.info(
-          `[Sanity Sync Guard] Intercepted Medusa-originated echo for [${cleanId}]. Bypassing loop cleanly.`,
-        );
-        if (req._releaseSyncLock) req._releaseSyncLock();
-        res.status(200).json({ success: true, message: "Loop echo blocked" });
+    if (requestFingerprint && cleanId) {
+      const fingerprintKey = `sanity-fingerprint:${cleanId}`;
+      if (await syncLock.matches(fingerprintKey, requestFingerprint)) {
+        res.status(200).json({
+          success: true,
+          syncStatus: "unchanged",
+          message: "Webhook content matches the last synchronized state.",
+        });
         return;
       }
+      documentFingerprints.push({
+        key: fingerprintKey,
+        value: requestFingerprint,
+      });
     }
 
     let operation: OperationTypes = resolvedRequestContextOperation;
@@ -328,25 +421,53 @@ export async function POST(
         logger.info(
           `[Sanity Sync Guard] Bypassed implicit internal draft cleanup for Entity: [${incomingId}].`,
         );
-        if (req._releaseSyncLock) req._releaseSyncLock();
         res.status(202).json({
           success: true,
           syncStatus: "deferred",
-          message: "Draft drop bypassed to secure live data mappings.",
+          reason: "unpublished_draft",
+          message:
+            "Draft documents are not synced to Medusa. Publish the Sanity document to sync the live version.",
         });
         return;
       }
       logger.info(
         `[Sanity Sync] Deferring execution for un-published draft: [${incomingId}].`,
       );
-      if (req._releaseSyncLock) req._releaseSyncLock();
       res.status(202).json({
         success: true,
         syncStatus: "deferred",
+        reason: "unpublished_draft",
+        message:
+          "Draft documents are not synced to Medusa. Publish the Sanity document to sync the live version.",
         sanityDocumentId: cleanId,
       });
       return;
     }
+
+    const revision = getString(rawPayload._rev) || "";
+    const eventIdentity = [
+      cleanId,
+      resolvedRequestContextOperation,
+      revision,
+      requestFingerprint || "",
+    ].join(":");
+    const eventKey = `sanity-event:${createHash("sha256")
+      .update(eventIdentity)
+      .digest("hex")}`;
+    const claimedEvent = await syncLock.acquire(eventKey, 86400);
+    if (!claimedEvent) {
+      logger.info(
+        `[Sanity Sync] Acknowledging duplicate delivery for ${documentType} ${cleanId}.`,
+      );
+      res.status(202).json({
+        success: true,
+        syncStatus: "duplicate",
+        message:
+          "This document revision and payload have already been processed or are in progress.",
+      });
+      return;
+    }
+    eventLease = { key: eventKey, token: claimedEvent };
 
     const incomingMetadata =
       (incomingCmsProduct?.metadata as Record<string, unknown>) || {};
@@ -363,32 +484,18 @@ export async function POST(
         }
       : incomingCmsProduct;
 
-    const documentType =
-      rawPayload.documentType ||
-      (rawPayload._type === "category" ? "category" : "product");
-
     const targetLockKey = cleanId ? `${documentType}-${cleanId}` : null;
 
-    if (targetLockKey && (operation === "create" || operation === "update")) {
-      if (activeSyncQueues.has(targetLockKey)) {
-        operation = "update";
-      } else {
-        let releaseLockResolver: (() => void) | undefined;
-        const currentThreadPromise = new Promise<void>((resolve) => {
-          releaseLockResolver = resolve;
+    if (targetLockKey) {
+      const key = `sanity-sync:${targetLockKey}`;
+      const token = await syncLock.acquire(key, 120);
+      if (!token) {
+        res.status(409).json({
+          error: "A synchronization for this document is already in progress.",
         });
-        const previousThreadPromise = activeSyncQueues.get(targetLockKey);
-        activeSyncQueues.set(targetLockKey, currentThreadPromise);
-        if (previousThreadPromise) {
-          await previousThreadPromise;
-          operation = "update";
-        }
-        (req as any)._releaseSyncLock = () => {
-          releaseLockResolver?.();
-          if (activeSyncQueues.get(targetLockKey) === currentThreadPromise)
-            activeSyncQueues.delete(targetLockKey);
-        };
+        return;
       }
+      syncLeases.push({ key, token });
     }
 
     const standardPerspectives = ["raw", "published", "production"];
@@ -398,9 +505,6 @@ export async function POST(
         !bodyPerspectives.some((p) => standardPerspectives.includes(p)));
 
     if (hasInvalidPerspective) {
-      if (typeof req._releaseSyncLock === "function") {
-        req._releaseSyncLock();
-      }
       res.status(200).json({
         success: true,
         syncStatus: "ignored",
@@ -410,9 +514,389 @@ export async function POST(
       return;
     }
 
-    // -------------------------------------------------------------------------
+    if (operation === "batch") {
+      const batchItems =
+        documentType === "category"
+          ? (rawPayload.batchCategories ?? rawPayload.documents)
+          : (rawPayload.batchProducts ?? rawPayload.documents);
+      if (!Array.isArray(batchItems) || batchItems.length === 0) {
+        res.status(400).json({
+          error: `Batch ${documentType} sync requires a non-empty documents array.`,
+        });
+        return;
+      }
+
+      if (documentType === "category") {
+        const categories = batchItems.filter(isRecord);
+        if (categories.length !== batchItems.length) {
+          res
+            .status(400)
+            .json({ error: "Every batch category must be an object." });
+          return;
+        }
+
+        for (const category of categories) {
+          const categoryId = getString(category._id);
+          const slug = sanitizeHandle(extractCategorySlug(category.slug) || "");
+          if (!categoryId || !slug) {
+            res.status(400).json({
+              error: "Every batch category requires an _id and slug.",
+            });
+            return;
+          }
+        }
+
+        for (const category of categories) {
+          const categoryId = cleanSanityId(getString(category._id)!);
+          const key = `sanity-sync:category-${categoryId}`;
+          const token = await syncLock.acquire(key, 120);
+          if (!token) {
+            res.status(409).json({
+              error: `Category ${categoryId} is already being synchronized.`,
+            });
+            return;
+          }
+          syncLeases.push({ key, token });
+
+          const titleValue = category.title;
+          const localizedTitle = isRecord(titleValue) ? titleValue : {};
+          const name =
+            getString(localizedTitle.en) ||
+            getString(titleValue) ||
+            getString(localizedTitle.fr) ||
+            getString(localizedTitle.ar) ||
+            "Category";
+          const descriptionValue = category.description;
+          const localizedDescription = isRecord(descriptionValue)
+            ? descriptionValue
+            : {};
+
+          await sanitySyncCategoryWorkflow(req.scope).run({
+            input: {
+              sanityId: categoryId,
+              name,
+              handle: sanitizeHandle(extractCategorySlug(category.slug) || ""),
+              description:
+                getString(localizedDescription.en) ||
+                getString(descriptionValue) ||
+                "",
+              metadata: {
+                sanity_id: categoryId,
+                is_sync_origin: "sanity",
+                translations: {
+                  en: {
+                    title: getString(localizedTitle.en) || name,
+                    description: getString(localizedDescription.en) || "",
+                  },
+                  fr: {
+                    title: getString(localizedTitle.fr) || "",
+                    description: getString(localizedDescription.fr) || "",
+                  },
+                  ar: {
+                    title: getString(localizedTitle.ar) || "",
+                    description: getString(localizedDescription.ar) || "",
+                  },
+                },
+                ...(isRecord(category.seo) ? { seo: category.seo } : {}),
+              },
+            },
+          });
+        }
+
+        res.status(200).json({
+          success: true,
+          operation: "batch",
+          documentType,
+          processed: categories.length,
+        });
+        return;
+      }
+
+      const normalizedBatch: SanitySyncWorkflowInput[] = [];
+      for (const rawBatchItem of batchItems) {
+        if (!isRecord(rawBatchItem)) {
+          res
+            .status(400)
+            .json({ error: "Every batch product must be an object." });
+          return;
+        }
+        const product = rawBatchItem as unknown as SanityRawProductInput;
+        const productId = cleanSanityId(getString(product._id) || "");
+        const productSlug = sanitizeHandle(
+          extractCategorySlug(product.slug) || "",
+        );
+        if (!productId || !productSlug) {
+          res.status(400).json({
+            error: "Every batch product requires an _id and slug.",
+          });
+          return;
+        }
+
+        const productCategories: SanityCategoryPayload[] = [];
+        for (const rawCategory of product.categories ?? []) {
+          const rawReference =
+            typeof rawCategory === "string"
+              ? rawCategory
+              : rawCategory._ref || rawCategory._id;
+          const categorySlug =
+            typeof rawCategory === "string"
+              ? undefined
+              : extractCategorySlug(rawCategory.slug);
+          let matched: { id: string; handle: string; name: string } | undefined;
+
+          if (rawReference) {
+            const cleanReference = String(rawReference)
+              .replace(/^drafts\./, "")
+              .replace(/^category-/, "");
+            for (const candidate of getSanityIdCandidates(cleanReference)) {
+              const { data: matches } = await queryEngine.graph({
+                entity: "product_category",
+                fields: ["id", "handle", "name"],
+                filters: {
+                  metadata: { sanity_id: candidate },
+                } as Record<string, unknown>,
+              });
+              if (matches?.[0]) {
+                matched = {
+                  id: matches[0].id,
+                  handle: matches[0].handle,
+                  name: matches[0].name,
+                };
+                break;
+              }
+            }
+          }
+          if (!matched && categorySlug) {
+            const { data: matches } = await queryEngine.graph({
+              entity: "product_category",
+              fields: ["id", "handle", "name"],
+              filters: { handle: [categorySlug] },
+            });
+            if (matches?.[0]) {
+              matched = {
+                id: matches[0].id,
+                handle: matches[0].handle,
+                name: matches[0].name,
+              };
+            }
+          }
+          if (!matched) {
+            res.status(400).json({
+              error: `Batch product ${productId} references an unknown category.`,
+            });
+            return;
+          }
+          productCategories.push({
+            _id: rawReference || matched.id,
+            title: matched.name,
+            slug: matched.handle,
+            ...matched,
+          } as SanityCategoryPayload);
+        }
+
+        if (productCategories.length === 0) {
+          res.status(400).json({
+            error: `Batch product ${productId} must reference a Medusa category.`,
+          });
+          return;
+        }
+
+        const inputMetadata: Record<string, unknown> = isRecord(
+          product.metadata,
+        )
+          ? product.metadata
+          : {};
+        const inputTranslations: Record<string, unknown> = isRecord(
+          inputMetadata.translations,
+        )
+          ? inputMetadata.translations
+          : {};
+        const localize = (
+          value: unknown,
+          locale: "en" | "fr" | "ar",
+          field: "title" | "description" | "material",
+        ): string => {
+          const localized = isRecord(value)
+            ? getString(value[locale])
+            : undefined;
+          const existingLocale = isRecord(inputTranslations[locale])
+            ? getString(inputTranslations[locale][field])
+            : undefined;
+          if (localized !== undefined) return localized.trim();
+          if (existingLocale !== undefined) return existingLocale.trim();
+          return locale === "en" ? getString(value)?.trim() || "" : "";
+        };
+        const titleTranslations = {
+          en: localize(product.title, "en", "title"),
+          fr: localize(product.title, "fr", "title"),
+          ar: localize(product.title, "ar", "title"),
+        };
+        const descriptionTranslations = {
+          en: localize(product.description, "en", "description"),
+          fr: localize(product.description, "fr", "description"),
+          ar: localize(product.description, "ar", "description"),
+        };
+        const materialTranslations = {
+          en: localize(product.material, "en", "material"),
+          fr: localize(product.material, "fr", "material"),
+          ar: localize(product.material, "ar", "material"),
+        };
+        const images = (product.images ?? []).flatMap((image, index) => {
+          const token = extractImageToken(image);
+          if (!token) return [];
+          const alt = isRecord(image.alt) ? image.alt : {};
+          const assetRef =
+            image.asset?._ref ||
+            (typeof image._ref === "string" ? image._ref : "");
+          const englishAlt =
+            image.alt_en || getString(alt.en) || getString(image.alt) || "";
+          return [
+            {
+              _type: "image",
+              _key: image._key || `batch_${productId}_${index}`,
+              id: image._key || `batch_${productId}_${index}`,
+              url: getSafeImageUrl(token, projectId, dataset, imgFallbackUrl),
+              alt: englishAlt,
+              alt_en: englishAlt,
+              alt_fr: image.alt_fr || getString(alt.fr) || "",
+              alt_ar: image.alt_ar || getString(alt.ar) || "",
+              asset: assetRef
+                ? { _type: "reference", _ref: assetRef }
+                : undefined,
+            },
+          ];
+        });
+        const variants = (product.variants ?? []).map(
+          (variant, variantIndex) => ({
+            ...variant,
+            images: (variant.images ?? []).flatMap((image, imageIndex) => {
+              const token = extractImageToken(image);
+              if (!token) return [];
+              const alt = isRecord(image.alt) ? image.alt : {};
+              const assetRef =
+                image.asset?._ref ||
+                (typeof image._ref === "string" ? image._ref : "");
+              const englishAlt =
+                image.alt_en || getString(alt.en) || getString(image.alt) || "";
+              return [
+                {
+                  _type: "image" as const,
+                  _key:
+                    image._key ||
+                    `batch_${productId}_variant_${variantIndex}_${imageIndex}`,
+                  id:
+                    image._key ||
+                    `batch_${productId}_variant_${variantIndex}_${imageIndex}`,
+                  url: getSafeImageUrl(
+                    token,
+                    projectId,
+                    dataset,
+                    imgFallbackUrl,
+                  ),
+                  alt: englishAlt,
+                  alt_en: englishAlt,
+                  alt_fr: image.alt_fr || getString(alt.fr) || "",
+                  alt_ar: image.alt_ar || getString(alt.ar) || "",
+                  asset: assetRef
+                    ? { _type: "reference", _ref: assetRef }
+                    : undefined,
+                },
+              ];
+            }),
+          }),
+        );
+
+        const metadata = {
+          ...inputMetadata,
+          sanity_id: productId,
+          is_sync_origin: "sanity" as const,
+          translations: {
+            ...inputTranslations,
+            en: {
+              ...(isRecord(inputTranslations.en) ? inputTranslations.en : {}),
+              title: titleTranslations.en || "",
+              description: descriptionTranslations.en || "",
+              material: materialTranslations.en || "",
+            },
+            fr: {
+              ...(isRecord(inputTranslations.fr) ? inputTranslations.fr : {}),
+              title: titleTranslations.fr || "",
+              description: descriptionTranslations.fr || "",
+              material: materialTranslations.fr || "",
+            },
+            ar: {
+              ...(isRecord(inputTranslations.ar) ? inputTranslations.ar : {}),
+              title: titleTranslations.ar || "",
+              description: descriptionTranslations.ar || "",
+              material: materialTranslations.ar || "",
+            },
+          },
+        };
+        const standardizedProduct: SanityProductPayload = {
+          _id: productId,
+          title: titleTranslations.en,
+          subtitle: titleTranslations.fr || "",
+          description: descriptionTranslations.en || "",
+          material: materialTranslations.en || "",
+          slug: productSlug,
+          tags: Array.isArray(product.tags)
+            ? product.tags.map((tag) => String(tag))
+            : [],
+          highlights: Array.isArray(product.highlights)
+            ? product.highlights
+            : [],
+          seo: product.seo || {},
+          productType: product.productType,
+          weightGrams: product.weightGrams,
+          lengthMm: product.lengthMm,
+          widthMm: product.widthMm,
+          heightMm: product.heightMm,
+          originCountry: product.originCountry,
+          images,
+          categories: productCategories,
+          variantOptions: product.variantOptions || [],
+          variants,
+          metadata,
+          manage_inventory: product.manage_inventory ?? true,
+          allow_backorder: product.allow_backorder ?? false,
+        };
+        const key = `sanity-sync:product-${productId}`;
+        const token = await syncLock.acquire(key, 120);
+        if (!token) {
+          res.status(409).json({
+            error: `Product ${productId} is already being synchronized.`,
+          });
+          return;
+        }
+        syncLeases.push({ key, token });
+        normalizedBatch.push({
+          operation: "create",
+          documentType: "product",
+          productData: standardizedProduct,
+          categoryIds: productCategories.flatMap((category) =>
+            typeof category.id === "string" ? [category.id] : [],
+          ),
+        });
+        documentFingerprints.push({
+          key: `sanity-fingerprint:${productId}`,
+          value: createHash("sha256")
+            .update(JSON.stringify(rawBatchItem))
+            .digest("hex"),
+        });
+      }
+
+      for (const batchInput of normalizedBatch) {
+        await sanitySyncProductWorkflow(req.scope).run({ input: batchInput });
+      }
+      res.status(200).json({
+        success: true,
+        operation: "batch",
+        documentType,
+        processed: normalizedBatch.length,
+      });
+      return;
+    }
     // CATEGORY ROUTING
-    // -------------------------------------------------------------------------
     if (documentType === "category") {
       const extractedCategorySlug =
         extractCategorySlug(cmsProduct?.slug)?.toLowerCase().trim() || "";
@@ -479,11 +963,18 @@ export async function POST(
         }
 
         if (!targetCategory) {
-          if (req._releaseSyncLock) req._releaseSyncLock();
           res.status(200).json({
             success: true,
             message: "Category deletion synced successfully.",
             operation: "delete",
+          });
+          return;
+        }
+
+        if (targetCategory.products?.length) {
+          res.status(400).json({
+            success: false,
+            message: "Cannot delete a category with assigned products",
           });
           return;
         }
@@ -504,10 +995,10 @@ export async function POST(
             },
           } as unknown as SanityProductPayload,
         };
+        await sanitySyncProductWorkflow(req.scope).run({
+          input: deletionInput,
+        });
 
-        await sanitySyncProductWorkflow(req.scope).run({ input: deletionInput });
-
-        if (req._releaseSyncLock) req._releaseSyncLock();
         res.status(200).json({
           success: true,
           message: "Category deletion synced successfully.",
@@ -517,38 +1008,62 @@ export async function POST(
       }
 
       if (operation === "create" || operation === "update") {
-        const categories = await productModuleService.listProductCategories({
-          handle: [extractedCategorySlug],
-        });
+        if (!extractedCategorySlug) {
+          res.status(400).json({
+            success: false,
+            error: "Category handle cannot be empty.",
+          });
+          return;
+        }
         const sanityId = cmsProduct?._id || "";
+        const titleTranslations =
+          typeof rawCategoryTitlePayload === "object" &&
+          rawCategoryTitlePayload !== null
+            ? {
+                en: getString(rawCategoryTitlePayload.en) || "",
+                fr: getString(rawCategoryTitlePayload.fr) || "",
+                ar: getString(rawCategoryTitlePayload.ar) || "",
+              }
+            : { en: categoryTitle, fr: "", ar: "" };
+        const descriptionTranslations =
+          typeof rawCategoryDesc === "object" && rawCategoryDesc !== null
+            ? {
+                en: getString(rawCategoryDesc.en) || "",
+                fr: getString(rawCategoryDesc.fr) || "",
+                ar: getString(rawCategoryDesc.ar) || "",
+              }
+            : { en: categoryDescription, fr: "", ar: "" };
 
-        if (categories.length === 0) {
-          await productModuleService.createProductCategories([
-            {
-              name: categoryTitle,
-              handle: extractedCategorySlug,
-              description: categoryDescription,
-              is_active: true,
-              metadata: {
-                sanity_id: sanityId,
-                is_sync_origin: "sanity",
-              },
-            },
-          ]);
-        } else {
-          await productModuleService.updateProductCategories(categories[0].id, {
+        await sanitySyncCategoryWorkflow(req.scope).run({
+          input: {
+            sanityId,
             name: categoryTitle,
-            is_active: true,
+            handle: extractedCategorySlug,
             description: categoryDescription,
             metadata: {
-              ...categories[0].metadata,
               sanity_id: sanityId,
               is_sync_origin: "sanity",
+              translations: {
+                ...(isRecord(incomingMetadata.translations)
+                  ? incomingMetadata.translations
+                  : {}),
+                en: {
+                  title: titleTranslations.en,
+                  description: descriptionTranslations.en || "",
+                },
+                fr: {
+                  title: titleTranslations.fr || "",
+                  description: descriptionTranslations.fr || "",
+                },
+                ar: {
+                  title: titleTranslations.ar || "",
+                  description: descriptionTranslations.ar || "",
+                },
+              },
+              ...(cmsProduct.seo ? { seo: cmsProduct.seo } : {}),
             },
-          });
-        }
-
-        if (req._releaseSyncLock) req._releaseSyncLock();
+          },
+        });
         res.status(200).json({
           success: true,
           message: "Category sync complete",
@@ -558,9 +1073,7 @@ export async function POST(
       }
     }
 
-    // -------------------------------------------------------------------------
     // PRODUCT DELETION
-    // -------------------------------------------------------------------------
     if (operation === "delete" && documentType === "product") {
       let targetProduct: { id: string; handle: string } | undefined;
 
@@ -589,15 +1102,12 @@ export async function POST(
       }
 
       if (!targetProduct) {
-        if (req._releaseSyncLock) req._releaseSyncLock();
         res.status(200).json({
           success: true,
           message: "Product deletion synced successfully.",
         });
         return;
       }
-
-      await syncLock.acquire(`sanity-delete:${targetProduct.id}`, 15);
 
       const deletionInput: SanitySyncWorkflowInput = {
         operation: "delete",
@@ -615,9 +1125,7 @@ export async function POST(
           },
         },
       };
-
       await sanitySyncProductWorkflow(req.scope).run({ input: deletionInput });
-      if (req._releaseSyncLock) req._releaseSyncLock();
       res.status(200).json({
         success: true,
         message: "Product deletion synced successfully.",
@@ -626,13 +1134,10 @@ export async function POST(
       return;
     }
 
-    // -------------------------------------------------------------------------
     // PRODUCT CREATE / UPDATE RESOLUTION
-    // -------------------------------------------------------------------------
     const rawCategories = cmsProduct.categories || rawPayload.categories || [];
     const categoryPayload: SanityCategoryPayload[] = [];
 
-    // ✅ FIX: Resolves categories by BOTH metadata.sanity_id AND slug/handle
     if (Array.isArray(rawCategories)) {
       for (const rawCategory of rawCategories) {
         if (!rawCategory) continue;
@@ -642,21 +1147,33 @@ export async function POST(
             ? rawCategory._ref || rawCategory._id
             : rawCategory;
         const rawCategorySlug =
-          typeof rawCategory === "object" ? extractCategorySlug(rawCategory.slug) : undefined;
+          typeof rawCategory === "object"
+            ? extractCategorySlug(rawCategory.slug)
+            : undefined;
 
-        let matchedCategory: { id: string; handle: string; name?: string } | undefined;
+        let matchedCategory:
+          { id: string; handle: string; name?: string } | undefined;
 
         // 1. Try resolving by Sanity Candidate IDs
         if (rawRef) {
-          const cleanRef = String(rawRef).replace(/^drafts\./, "").replace(/^category-/, "");
+          const cleanRef = String(rawRef)
+            .replace(/^drafts\./, "")
+            .replace(/^category-/, "");
           for (const candidateId of getSanityIdCandidates(cleanRef)) {
             const { data: matched } = await queryEngine.graph({
               entity: "product_category",
               fields: ["id", "handle", "name"],
-              filters: { metadata: { sanity_id: candidateId } } as Record<string, unknown>,
+              filters: { metadata: { sanity_id: candidateId } } as Record<
+                string,
+                unknown
+              >,
             });
             if (matched?.[0]) {
-              matchedCategory = { id: matched[0].id, handle: matched[0].handle, name: matched[0].name };
+              matchedCategory = {
+                id: matched[0].id,
+                handle: matched[0].handle,
+                name: matched[0].name,
+              };
               break;
             }
           }
@@ -670,7 +1187,11 @@ export async function POST(
             filters: { handle: [rawCategorySlug] },
           });
           if (matchedBySlug?.[0]) {
-            matchedCategory = { id: matchedBySlug[0].id, handle: matchedBySlug[0].handle, name: matchedBySlug[0].name };
+            matchedCategory = {
+              id: matchedBySlug[0].id,
+              handle: matchedBySlug[0].handle,
+              name: matchedBySlug[0].name,
+            };
           }
         }
 
@@ -678,6 +1199,15 @@ export async function POST(
           categoryPayload.push(matchedCategory as SanityCategoryPayload);
         }
       }
+    }
+
+    if (categoryPayload.length === 0) {
+      res.status(400).json({
+        success: false,
+        error:
+          "Product references must resolve to an existing Medusa category.",
+      });
+      return;
     }
 
     const rawSlug =
@@ -719,11 +1249,10 @@ export async function POST(
           }
           const originalRef = image.asset?._ref || (image._ref as string) || "";
           const resolvedEnText =
-            typeof image.alt_en === "string" && image.alt_en.trim() !== ""
-              ? image.alt_en
-              : typeof image.alt === "string" && image.alt.trim() !== ""
-              ? image.alt
-              : "Product catalog image";
+            getLocalizedText(image.alt, "en") ||
+            getString(image.alt_en)?.trim() ||
+            "Product catalog image";
+          const localizedAlt = isRecord(image.alt) ? image.alt : {};
 
           const computedKey =
             (image._key as string) || `img_${index}_${Date.now()}`;
@@ -735,8 +1264,14 @@ export async function POST(
             url: cleanCdnUrl,
             alt: resolvedEnText,
             alt_en: resolvedEnText,
-            alt_fr: (image.alt_fr || "") as string,
-            alt_ar: (image.alt_ar || "") as string,
+            alt_fr:
+              getString(localizedAlt.fr)?.trim() ||
+              getString(image.alt_fr)?.trim() ||
+              "",
+            alt_ar:
+              getString(localizedAlt.ar)?.trim() ||
+              getString(image.alt_ar)?.trim() ||
+              "",
             asset: originalRef
               ? { _type: "reference", _ref: originalRef }
               : undefined,
@@ -755,43 +1290,156 @@ export async function POST(
       },
     }));
 
-    const incomingMetaTrans =
-      (incomingCmsProduct?.metadata?.translations as Record<string, any>) || {};
+    const mappedVariants = (cmsProduct.variants ?? []).map(
+      (variant, variantIndex) => {
+        const swatch = isRecord(variant.swatchImage)
+          ? variant.swatchImage
+          : undefined;
+        const swatchToken = swatch ? extractImageToken(swatch) : undefined;
+        const swatchAssetId =
+          isRecord(swatch?.asset) && typeof swatch.asset._ref === "string"
+            ? swatch.asset._ref
+            : undefined;
+        const swatchImage = swatchToken
+          ? {
+              url: getSafeImageUrl(
+                swatchToken,
+                projectId,
+                dataset,
+                imgFallbackUrl,
+              ),
+              sanity_asset_id: swatchAssetId || swatchToken,
+              alt: {
+                en: getLocalizedText(swatch?.alt, "en"),
+                fr: getLocalizedText(swatch?.alt, "fr"),
+                ar: getLocalizedText(swatch?.alt, "ar"),
+              },
+            }
+          : undefined;
+        const variantImages = (variant.images ?? []).flatMap(
+          (image, imageIndex) => {
+            const token = extractImageToken(image);
+            if (!token) return [];
+            const assetRef =
+              image.asset?._ref ||
+              (typeof image._ref === "string" ? image._ref : "");
+            const alt = isRecord(image.alt) ? image.alt : {};
+            const englishAlt =
+              getLocalizedText(image.alt, "en") ||
+              getString(image.alt_en)?.trim() ||
+              "Variant image";
 
-    const titleEn =
-      String(
-        (cmsProduct.title as any)?.en ??
-          incomingMetaTrans?.en?.title ??
-          (typeof cmsProduct.title === "string" ? cmsProduct.title : ""),
-      ).trim() || "Untitled Product";
+            return [
+              {
+                _type: "image" as const,
+                _key:
+                  image._key || `variant_${variantIndex}_image_${imageIndex}`,
+                id: image._key || `variant_${variantIndex}_image_${imageIndex}`,
+                url: getSafeImageUrl(token, projectId, dataset, imgFallbackUrl),
+                alt: englishAlt,
+                alt_en: englishAlt,
+                alt_fr:
+                  getString(alt.fr)?.trim() ||
+                  getString(image.alt_fr)?.trim() ||
+                  "",
+                alt_ar:
+                  getString(alt.ar)?.trim() ||
+                  getString(image.alt_ar)?.trim() ||
+                  "",
+                asset: assetRef
+                  ? { _type: "reference", _ref: assetRef }
+                  : undefined,
+              },
+            ];
+          },
+        );
+        return {
+          ...variant,
+          variantId:
+            variant.medusa_variant_id || variant.variantId || variant._key,
+          images: variantImages,
+          metadata: {
+            ...(isRecord(variant.metadata) ? variant.metadata : {}),
+            sanity_variant_content: {
+              description: {
+                en: getLocalizedText(variant.description, "en"),
+                fr: getLocalizedText(variant.description, "fr"),
+                ar: getLocalizedText(variant.description, "ar"),
+              },
+              details: {
+                en: getLocalizedText(variant.details, "en"),
+                fr: getLocalizedText(variant.details, "fr"),
+                ar: getLocalizedText(variant.details, "ar"),
+              },
+              badge: {
+                en: getLocalizedText(variant.badge, "en"),
+                fr: getLocalizedText(variant.badge, "fr"),
+                ar: getLocalizedText(variant.badge, "ar"),
+              },
+              colorHex: getString(variant.colorHex) || "",
+              swatchImage: swatchImage ?? null,
+            },
+          },
+        };
+      },
+    );
+    const mappedAllImages = [
+      ...new Map(
+        [
+          ...mappedImages,
+          ...mappedVariants.flatMap((variant) => variant.images ?? []),
+        ].map((image) => [image.url, image]),
+      ).values(),
+    ];
+    const variantImageMetadata = Object.fromEntries(
+      mappedVariants.map((variant, index) => [
+        variant.variantId ||
+          variant.medusa_variant_id ||
+          variant._key ||
+          `variant_${index}`,
+        (variant.images ?? []).map((image) => ({
+          url: image.url,
+          sanity_asset_id: image.asset?._ref || image._key || "",
+          alt: {
+            en: image.alt || "",
+            fr: image.alt_fr || "",
+            ar: image.alt_ar || "",
+          },
+        })),
+      ]),
+    );
 
-    const titleFr = String(
-      (cmsProduct.title as any)?.fr ?? incomingMetaTrans?.fr?.title ?? "",
-    ).trim();
+    const incomingMetaTrans = isRecord(
+      incomingCmsProduct.metadata?.translations,
+    )
+      ? incomingCmsProduct.metadata.translations
+      : {};
+    const translatedText = (
+      field: unknown,
+      lang: "en" | "fr" | "ar",
+      key: string,
+    ): string => {
+      if (
+        isRecord(field) &&
+        Object.prototype.hasOwnProperty.call(field, lang)
+      ) {
+        return getLocalizedText(field, lang);
+      }
+      if (lang === "en" && typeof field === "string") {
+        return field.trim();
+      }
+      const localized = isRecord(incomingMetaTrans[lang])
+        ? getString(incomingMetaTrans[lang][key])?.trim()
+        : undefined;
+      return localized || "";
+    };
 
-    const titleAr = String(
-      (cmsProduct.title as any)?.ar ?? incomingMetaTrans?.ar?.title ?? "",
-    ).trim();
-
-    const descEn = String(
-      (cmsProduct.description as any)?.en ??
-        incomingMetaTrans?.en?.description ??
-        (typeof cmsProduct.description === "string"
-          ? cmsProduct.description
-          : ""),
-    ).trim();
-
-    const descFr = String(
-      (cmsProduct.description as any)?.fr ??
-        incomingMetaTrans?.fr?.description ??
-        "",
-    ).trim();
-
-    const descAr = String(
-      (cmsProduct.description as any)?.ar ??
-        incomingMetaTrans?.ar?.description ??
-        "",
-    ).trim();
+    const titleEn = translatedText(cmsProduct.title, "en", "title");
+    const titleFr = translatedText(cmsProduct.title, "fr", "title");
+    const titleAr = translatedText(cmsProduct.title, "ar", "title");
+    const descEn = translatedText(cmsProduct.description, "en", "description");
+    const descFr = translatedText(cmsProduct.description, "fr", "description");
+    const descAr = translatedText(cmsProduct.description, "ar", "description");
 
     const rawHighlights =
       incomingCmsProduct.highlights ||
@@ -803,7 +1451,11 @@ export async function POST(
       incomingCmsProduct.seo || cmsProduct.seo || incomingMetadata.seo || {};
 
     const keywords: string[] = Array.isArray(rawSeo.keywords)
-      ? rawSeo.keywords.map((k: any) => String(k).trim()).filter(Boolean)
+      ? rawSeo.keywords
+          .map((keyword: unknown) =>
+            typeof keyword === "string" ? keyword.trim() : "",
+          )
+          .filter(Boolean)
       : [];
 
     const rawOg = rawSeo.openGraphImage as SanityOpenGraphImage;
@@ -836,24 +1488,9 @@ export async function POST(
       },
     };
 
-    const materialEn =
-      String(
-        (cmsProduct.material as any)?.en ??
-          incomingMetaTrans?.en?.material ??
-          (typeof cmsProduct.material === "string" ? cmsProduct.material : ""),
-      ).trim() || "";
-    const materialAr =
-      String(
-        (cmsProduct.material as any)?.ar ??
-          incomingMetaTrans?.ar?.material ??
-          "",
-      ).trim() || "";
-    const materialFr =
-      String(
-        (cmsProduct.material as any)?.fr ??
-          incomingMetaTrans?.fr?.material ??
-          "",
-      ).trim() || "";
+    const materialEn = translatedText(cmsProduct.material, "en", "material");
+    const materialAr = translatedText(cmsProduct.material, "ar", "material");
+    const materialFr = translatedText(cmsProduct.material, "fr", "material");
 
     const rawTags =
       incomingCmsProduct.tags || cmsProduct.tags || incomingMetadata.tags || [];
@@ -872,9 +1509,9 @@ export async function POST(
     const standardizedProductData: SanityProductPayload = {
       _id: cmsProduct._id as string,
       title: titleEn,
-      material: materialEn,
+      material: materialEn || "",
       subtitle: titleFr || "",
-      description: descEn,
+      description: descEn || "",
       slug: normalizedSlug,
       tags: stringTags as any,
       highlights: incomingCmsProduct.highlights,
@@ -889,6 +1526,7 @@ export async function POST(
         tags: stringTags,
         highlights: rawHighlights,
         seo: seoPayload,
+        images: mappedAllImages,
         translations: {
           en: { title: titleEn, description: descEn, material: materialEn },
           fr: { title: titleFr, description: descFr, material: materialFr },
@@ -903,7 +1541,16 @@ export async function POST(
         material_en: materialEn,
         material_fr: materialFr,
         material_ar: materialAr,
-        image_metadata,
+        image_metadata: mappedAllImages.map((image) => ({
+          url: image.url,
+          sanity_asset_id: image.asset?._ref || image._key || "",
+          alt: {
+            en: image.alt || "",
+            fr: image.alt_fr || "",
+            ar: image.alt_ar || "",
+          },
+        })),
+        variant_images: variantImageMetadata,
       },
       weightGrams: cmsProduct.weightGrams,
       lengthMm: cmsProduct.lengthMm,
@@ -911,7 +1558,20 @@ export async function POST(
       heightMm: cmsProduct.heightMm,
       originCountry: cmsProduct.originCountry?.toLowerCase(),
       categories: resolvedCategoryPayloads,
-      images: mappedImages,
+      images: mappedAllImages,
+      variantOptions: cmsProduct.variantOptions || [],
+      variants: mappedVariants,
+      syncFieldsPresent: {
+        tags: Object.prototype.hasOwnProperty.call(incomingCmsProduct, "tags"),
+        images: Object.prototype.hasOwnProperty.call(
+          incomingCmsProduct,
+          "images",
+        ),
+        variants: Object.prototype.hasOwnProperty.call(
+          incomingCmsProduct,
+          "variants",
+        ),
+      },
       manage_inventory: cmsProduct.manage_inventory ?? true,
       allow_backorder: cmsProduct.allow_backorder ?? false,
     };
@@ -934,7 +1594,10 @@ export async function POST(
         const { data: matchedProducts } = await queryEngine.graph({
           entity: "product",
           fields: ["id"],
-          filters: { metadata: { sanity_id: candidateId } } as Record<string, any>,
+          filters: { metadata: { sanity_id: candidateId } } as Record<
+            string,
+            any
+          >,
         });
         if (matchedProducts?.[0]?.id) {
           targetMedusaProductId = matchedProducts[0].id;
@@ -974,26 +1637,20 @@ export async function POST(
       categoryIds: resolvedCategoryIds,
     };
 
-    // Lock before workflow executes
-    if (targetMedusaProductId) {
-      await syncLock.acquire(`sanity-sync:${targetMedusaProductId}`, 20);
+    if (targetMedusaProductId && documentType === "product") {
+      await syncLock.mark(
+        `sanity-inbound-product:${targetMedusaProductId}`,
+        eventIdentity,
+        15,
+      );
     }
-    await syncLock.acquire(`sanity-sync:${cleanId}`, 20);
 
     const workflowResponse = await sanitySyncProductWorkflow(req.scope).run({
       input: standardizedInput,
     });
 
-    const createdId =
-      targetMedusaProductId ||
-      (workflowResponse?.result as any)?.product?.id ||
-      (workflowResponse?.result as any)?.id;
-
-    if (createdId) {
-      await syncLock.acquire(`sanity-sync:${createdId}`, 20);
-    }
-
-    const medusaOperation = (workflowResponse?.result as any)?.operation || operation;
+    const medusaOperation =
+      (workflowResponse?.result as any)?.operation || operation;
 
     res.status(200).json({
       success: (workflowResponse?.result as any)?.success ?? true,
@@ -1015,8 +1672,20 @@ export async function POST(
       details: error instanceof Error ? error.message : error,
     });
   } finally {
-    if (req._releaseSyncLock) {
-      req._releaseSyncLock();
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      for (const fingerprint of documentFingerprints) {
+        await syncLock.mark(fingerprint.key, fingerprint.value, 86400);
+      }
+    }
+    for (const lease of syncLeases) {
+      await syncLock.release(lease.key, lease.token);
+    }
+    if (eventLease) {
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        await syncLock.complete(eventLease.key, eventLease.token);
+      } else {
+        await syncLock.release(eventLease.key, eventLease.token);
+      }
     }
   }
 }

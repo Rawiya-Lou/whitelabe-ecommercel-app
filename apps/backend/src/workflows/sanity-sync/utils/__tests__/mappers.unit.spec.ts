@@ -69,11 +69,26 @@ describe("mapSanityToMedusaProduct", () => {
         },
         images: [
           {
+            _key: "product-image-1",
             url: "https://cdn.sanity.io/images/proj/dataset/img1.jpg",
             asset: { _ref: "image-asset-1" },
             alt_en: "Front View",
             alt_fr: "Vue de face",
             alt_ar: "منظر أمامي",
+          },
+        ],
+        variants: [
+          {
+            _key: "variant-black",
+            title: "Black",
+            options: { Color: "Black" },
+            images: [
+              {
+                _key: "variant-image-1",
+                url: "https://cdn.sanity.io/images/proj/dataset/black.jpg",
+                alt_en: "Black variant front",
+              },
+            ],
           },
         ],
         manage_inventory: true,
@@ -97,23 +112,34 @@ describe("mapSanityToMedusaProduct", () => {
       expect(result.subtitle).toBe("Caftan Héritage");
       expect(result.description).toBe("Luxurious handcrafted kaftan.");
       expect(result.handle).toBe("heritage-kaftan");
-      expect(result.status).toBe(ProductStatus.DRAFT);
+      expect(result.status).toBe(ProductStatus.PUBLISHED);
       expect(result.material).toBe("100% Pure Silk");
 
       // Assert: Logistics & Shipping Specs
-      expect(result.origin_country).toBe("DZ");
+      expect(result.origin_country).toBeUndefined();
+      expect(result.variants?.[0].origin_country).toBeUndefined();
       expect(result.shipping_profile_id).toBe("sp_default");
       expect(result.sales_channels).toEqual([{ id: "sc_global" }]);
       expect(result.categories).toEqual([{ id: "pcat_cat1" }, { id: "pcat_cat2" }]);
 
       // Assert: Media
       expect(result.thumbnail).toBe("https://cdn.sanity.io/images/proj/dataset/img1.jpg");
-      expect(result.images).toHaveLength(1);
+      expect(result.images).toHaveLength(2);
       expect(result.images?.[0]).toEqual({
         url: "https://cdn.sanity.io/images/proj/dataset/img1.jpg",
         alt: "Front View",
         metadata: null,
       });
+      expect(result.images).toContainEqual({
+        url: "https://cdn.sanity.io/images/proj/dataset/black.jpg",
+        alt: "Black variant front",
+        metadata: null,
+      });
+      expect(result.tags).toEqual([
+        { value: "Handmade" },
+        { value: "Traditional" },
+        { value: "Luxury" },
+      ]);
 
       // Assert: Metadata Structure
       expect(result.metadata?.sanity_id).toBe("sanity_prod_123");
@@ -141,50 +167,122 @@ describe("mapSanityToMedusaProduct", () => {
       // Assert: Variant & Inventory
       expect(result.variants).toHaveLength(1);
       const variant = result.variants![0];
-      expect(variant.title).toBe("Standard Edition");
-      expect(variant.sku).toBe("SANITY-SANITY_PROD_123");
+      expect(variant.title).toBe("Black");
+      expect(variant.sku).toBe("SANITY-SANITY_PROD_123-BLACK");
      
       expect(variant.manage_inventory).toBe(true);
       expect(variant.allow_backorder).toBe(false);
+      expect(variant.metadata?.variant_images).toEqual([
+        expect.objectContaining({
+          url: "https://cdn.sanity.io/images/proj/dataset/black.jpg",
+          alt: expect.objectContaining({ en: "Black variant front" }),
+        }),
+      ]);
     
     });
   });
 
-  describe("Pricing Conversions", () => {
-    it("should correctly convert float currencies into minor integer cents and handle zeros", () => {
+  describe("Commerce ownership", () => {
+    it("omits DZ as an origin country but keeps other explicit country codes", () => {
+      const algerianProduct = mapSanityToMedusaProduct(
+        createBaseMockProduct({ originCountry: "DZ" }) as any,
+        [],
+      );
+      const tunisianProduct = mapSanityToMedusaProduct(
+        createBaseMockProduct({ originCountry: "TN" }) as any,
+        [],
+      );
+
+      expect(algerianProduct.origin_country).toBeUndefined();
+      expect(algerianProduct.variants?.[0].origin_country).toBeUndefined();
+      expect(tunisianProduct.origin_country).toBe("TN");
+      expect(tunisianProduct.variants?.[0].origin_country).toBe("TN");
+    });
+
+    it("should leave price creation to Medusa even when legacy CMS price fields exist", () => {
       const mockProduct = createBaseMockProduct({
         basePriceDzd: 1200.75,
         basePriceEur: 19.99,
-        basePriceUsd: 0, // Unset/Free USD
+        basePriceUsd: 0,
       });
 
       const result = mapSanityToMedusaProduct(mockProduct as any, []);
 
-      expect(result.variants![0].prices).toEqual([
-        { currency_code: "dzd", amount: 120075 },
-        { currency_code: "eur", amount: 1999 },
-        { currency_code: "usd", amount: 0 },
-      ]);
+      expect(result.variants![0].prices).toEqual([]);
     });
+  });
 
-    it("should default prices to 0 if price fields are undefined or null", () => {
+  describe("Malformed optional variant data", () => {
+    it("ignores null option names and values without failing product creation", () => {
       const mockProduct = createBaseMockProduct({
-        basePriceDzd: undefined,
-        basePriceEur: null,
-        basePriceUsd: undefined,
+        variantOptions: [
+          null,
+          { title: null, values: [null, ""] },
+          { title: "Size", values: [null, "Large", ""] },
+        ],
+        variants: [
+          {
+            _key: "large-variant",
+            title: null,
+            options: [
+              null,
+              { option: null, value: "invalid" },
+              { option: "Size", value: null },
+              { option: "Size", value: "Large" },
+            ],
+            images: [],
+          },
+        ],
       });
 
       const result = mapSanityToMedusaProduct(mockProduct as any, []);
 
-      expect(result.variants![0].prices).toEqual([
-        { currency_code: "dzd", amount: 0 },
-        { currency_code: "eur", amount: 0 },
-        { currency_code: "usd", amount: 0 },
-      ]);
+      expect(result.options).toEqual([{ title: "Size", values: ["Large"] }]);
+      expect(result.variants).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            title: "Large",
+            options: { Size: "Large" },
+          }),
+        ]),
+      );
     });
   });
 
   describe("Multilingual Resolution & Fallbacks", () => {
+    it("keeps optional empty localized fields empty without coercing objects to text", () => {
+      const mockProduct = createBaseMockProduct({
+        title: { en: "Optional Fields Product" },
+        description: { en: { value: "invalid" } },
+        material: { en: { value: "invalid" } },
+        metadata: {
+          translations: {
+            en: {
+              title: "Optional Fields Product",
+              description: { value: "invalid" },
+              material: { value: "invalid" },
+            },
+            fr: {},
+            ar: {},
+          },
+        },
+      });
+
+      const result = mapSanityToMedusaProduct(mockProduct as any, []);
+
+      expect(result.description).toBe("");
+      expect(result.material).toBe("");
+      expect(result.metadata?.translations).toEqual({
+        en: {
+          title: "Optional Fields Product",
+          description: "",
+          material: "",
+        },
+        fr: { title: "", description: "", material: "" },
+        ar: { title: "", description: "", material: "" },
+      });
+    });
+
     it("should fallback to plain strings when title, description, or material are not objects", () => {
       const mockProduct = createBaseMockProduct({
         title: "Simple T-Shirt",

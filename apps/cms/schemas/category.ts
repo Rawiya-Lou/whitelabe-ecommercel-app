@@ -32,8 +32,10 @@ export const category = defineType({
       description:
         "Primary category name displayed across storefront menus and cards.",
       validation: (Rule) =>
-        Rule.required().error(
-          "Category title is required for storefront rendering.",
+        Rule.required().custom((value: Record<string, unknown>) =>
+          typeof value?.en === "string" && value.en.trim()
+            ? true
+            : "An English category title is required.",
         ),
     }),
 
@@ -101,6 +103,27 @@ export const category = defineType({
     }),
 
     defineField({
+      name: "updatedBy",
+      title: "Last Sync Origin Provider",
+      type: "string",
+      hidden: true,
+    }),
+    defineField({
+      name: "syncOrigin",
+      title: "Synchronization Origin",
+      type: "string",
+      hidden: true,
+      readOnly: true,
+    }),
+    defineField({
+      name: "correlationId",
+      title: "Synchronization Correlation ID",
+      type: "string",
+      hidden: true,
+      readOnly: true,
+    }),
+
+    defineField({
       name: "subCategories",
       title: "Sub-Categories",
       type: "array",
@@ -111,6 +134,7 @@ export const category = defineType({
         {
           type: "reference",
           to: [{ type: "category" }],
+          weak: true,
           options: {
             // Guard: Prevents editors from referencing this document as its own child
             filter: ({ document }) => {
@@ -131,9 +155,11 @@ export const category = defineType({
       title: "Search Engine Optimization (SEO)",
       type: "object",
       group: "seo",
+      description:
+        "Custom metadata fields to optimize Google search indexing and social sharing appearance.",
       options: {
-        collapsible: true,
         collapsed: false,
+        collapsible: true,
       },
       fields: [
         defineField({
@@ -141,30 +167,39 @@ export const category = defineType({
           title: "Meta Title",
           type: "localizedString",
           description:
-            "Appears in Google search tabs. Defaults to Category Title if blank.",
-          validation: (Rule) =>
-            Rule.custom((field) => {
-              const enTitle =
-                (field as Record<string, string> | undefined)?.en || "";
-              return enTitle.length > 60
-                ? "Optimal title length is under 60 characters for search results."
-                : true;
-            }).warning(),
+            "Ideally between 50–60 characters. Defaults to Product Title if blank.",
         }),
         defineField({
           name: "metaDescription",
           title: "Meta Description",
           type: "localizedText",
           description:
-            "Summary snippet shown in Google search result cards (150-160 characters recommended).",
-          validation: (Rule) =>
-            Rule.custom((field) => {
-              const enDesc =
-                (field as Record<string, string> | undefined)?.en || "";
-              return enDesc.length > 160
-                ? "Description exceeds 160 characters and may get cut off on Google."
-                : true;
-            }).warning(),
+            "Ideally between 150–160 characters. Summarize the product hook.",
+        }),
+        defineField({
+          name: "openGraphImage",
+          title: "Social Share Image (Open Graph)",
+          type: "image",
+          description:
+            "Custom preview when link is shared on WhatsApp, Facebook, or X.",
+          options: {
+            hotspot: true,
+          },
+          fields: [
+            defineField({
+              name: "alt",
+              title: "Alternative Text",
+              type: "localizedString",
+            }),
+          ],
+        }),
+        defineField({
+          name: "keywords",
+          title: "Keywords / Search Tags",
+          type: "array",
+          of: [{ type: "string" }],
+          description:
+            "Search phrases (e.g., 'organic', 'handmade', 'artisan').",
         }),
       ],
     }),

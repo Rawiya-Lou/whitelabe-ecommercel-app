@@ -4,6 +4,7 @@ import {
   transform,
   when,
 } from "@medusajs/framework/workflows-sdk";
+import { ProductStatus } from "@medusajs/framework/utils";
 import {
   createProductsWorkflow,
   updateProductsWorkflow,
@@ -13,45 +14,30 @@ import {
   SanitySyncWorkflowInput,
   SyncWorkflowResult,
   ProductInspectionDTO,
-  SystemDefaultsDTO,
-  CreateFreshInventoryInput,
-  LinkVariantInventoryInput,
-  SanityProductPayload,
 } from "./types";
 import { getSystemDefaultsStep } from "./steps/system-defaults";
 import { inspectExistingProductStep } from "./steps/inspect-existing-product";
-import { linkVariantToInventoryStep } from "./steps/link-variant-to-inventory";
+import { ensureProductInventoryStep } from "./steps/ensure-product-inventory";
 import { syncProductCategoriesStep } from "./steps/sync-product-categories";
-import { createFreshInventoryStep } from "./steps/create-fresh-inventory";
 import { batchSyncStep } from "./steps/batch-sync-step";
 import { deleteCatalogItemStep } from "./steps/delete-catalog-item";
 import { mapSanityToMedusaProduct } from "./utils/mappers";
+import { syncVariantImagesFromSanityStep } from "./steps/sync-variant-images-from-sanity";
+import { resolveProductTagsStep } from "./steps/resolve-product-tags";
 
 
 interface UpdateBranchTransformInput {
   input: SanitySyncWorkflowInput;
   inspection: ProductInspectionDTO;
   resolvedCategoryIds: string[];
+  resolvedTagIds: string[];
 }
 
-interface InventoryBranchTransformInput {
-  inspection: ProductInspectionDTO;
-  variantSku: string;
-  input: {
-    productData: SanityProductPayload;
-  };
-  systemDefaults: SystemDefaultsDTO;
-}
+const safeText = (value: unknown): string =>
+  typeof value === "string" ? value.trim() : "";
 
-interface LinkageBranchTransformInput {
-  inspection: ProductInspectionDTO;
-  inventorySyncResult: { inventoryItemId: string };
-  systemDefaults: SystemDefaultsDTO;
-  input: {
-    productData: SanityProductPayload;
-  };
-  variantSku: string;
-}
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 export const sanitySyncProductWorkflow = createWorkflow(
   "sanity-sync-product",
@@ -118,6 +104,19 @@ export const sanitySyncProductWorkflow = createWorkflow(
       (data) =>
         data.input.operation === "create" || data.input.operation === "update",
     );
+    const incomingTagValues = transform({ input }, (data) => {
+      const tags: unknown = data.input.productData?.tags;
+      if (!Array.isArray(tags)) return [];
+      return tags.flatMap((tag) => {
+        if (typeof tag === "string") return [tag];
+        return isRecord(tag) && typeof tag.value === "string"
+          ? [tag.value]
+          : [];
+      });
+    });
+    const resolvedTagIds = resolveProductTagsStep({
+      values: incomingTagValues,
+    });
 
     const rawCategories = transform({ input, isSingleUpsert }, (data) =>
       data.isSingleUpsert ? (data.input.productData?.categories ?? []) : [],
@@ -173,34 +172,81 @@ export const sanitySyncProductWorkflow = createWorkflow(
         const updatePayload = transform<
           UpdateBranchTransformInput,
           UpdateProductWorkflowInput
-        >({ input, inspection, resolvedCategoryIds }, (data) => {
+        >(
+          { input, inspection, resolvedCategoryIds, resolvedTagIds },
+          (data) => {
           const prodData =
             (data.input.productData as Record<string, any>) || {};
           const incomingMeta = (prodData.metadata as Record<string, any>) || {};
+          const existingMeta =
+            (data.inspection.metadata as Record<string, any> | undefined) || {};
           const incomingTranslations =
             (incomingMeta.translations as Record<string, any>) || {};
+          const existingTranslations =
+            (existingMeta.translations as Record<string, any>) || {};
           const resolveLang = (
-            field: any,
+            field: unknown,
             metaKey: string,
             lang: string,
           ): string => {
-            if (field && typeof field === "object" && field[lang]) {
-              return String(field[lang]).trim();
+            if (
+              field &&
+              typeof field === "object" &&
+              !Array.isArray(field) &&
+              Object.prototype.hasOwnProperty.call(field, lang)
+            ) {
+              return safeText((field as Record<string, unknown>)[lang]);
             }
-            if (incomingMeta[`${metaKey}_${lang}`]) {
-              return String(incomingMeta[`${metaKey}_${lang}`]).trim();
+            if (
+              Object.prototype.hasOwnProperty.call(
+                incomingMeta,
+                `${metaKey}_${lang}`,
+              )
+            ) {
+              return safeText(incomingMeta[`${metaKey}_${lang}`]);
             }
-            if (incomingTranslations[lang]?.[metaKey]) {
-              return String(incomingTranslations[lang][metaKey]).trim();
+            if (
+              incomingTranslations[lang] &&
+              Object.prototype.hasOwnProperty.call(
+                incomingTranslations[lang],
+                metaKey,
+              )
+            ) {
+              return safeText(incomingTranslations[lang][metaKey]);
             }
             if (lang === "en" && typeof field === "string") {
               return field.trim();
             }
+            if (
+              existingTranslations[lang] &&
+              Object.prototype.hasOwnProperty.call(
+                existingTranslations[lang],
+                metaKey,
+              )
+            ) {
+              return safeText(existingTranslations[lang][metaKey]);
+            }
+            if (
+              Object.prototype.hasOwnProperty.call(
+                existingMeta,
+                `${metaKey}_${lang}`,
+              )
+            ) {
+              return safeText(existingMeta[`${metaKey}_${lang}`]);
+            }
+            if (lang === "en" && metaKey === "material")
+              return safeText(existingMeta.material);
+            if (lang === "en" && metaKey === "description")
+              return safeText(data.inspection.description);
+            if (lang === "fr" && metaKey === "title")
+              return safeText(data.inspection.subtitle);
             return "";
           };
 
           const strTitleEn =
-            resolveLang(prodData.title, "title", "en") || "Updated Product";
+            resolveLang(prodData.title, "title", "en") ||
+            data.inspection.title ||
+            "Updated Product";
           const strTitleFr = resolveLang(prodData.title, "title", "fr");
           const strTitleAr = resolveLang(prodData.title, "title", "ar");
 
@@ -220,118 +266,297 @@ export const sanitySyncProductWorkflow = createWorkflow(
             "ar",
           );
 
-          const compiledImageMetadata = (prodData.images ?? []).map(
+          const incomingImageMetadata = (prodData.images ?? []).map(
             (img: any, index: number) => ({
               url: img.url,
               sanity_asset_id: img.asset?._ref || img._key || `img_${index}`,
               alt: {
-                en: img.alt_en || img.alt || "Product image",
-                fr: img.alt_fr || "",
-                ar: img.alt_ar || "",
+                en:
+                  safeText(img.alt?.en) ||
+                  safeText(img.alt_en) ||
+                  safeText(img.alt) ||
+                  "Product image",
+                fr: safeText(img.alt?.fr) || safeText(img.alt_fr),
+                ar: safeText(img.alt?.ar) || safeText(img.alt_ar),
               },
             }),
           );
+          const compiledImageMetadata =
+            incomingImageMetadata.length > 0
+              ? incomingImageMetadata
+              : existingMeta.image_metadata || [];
+          const fieldsPresent = prodData.syncFieldsPresent || {
+            tags: true,
+            images: true,
+            variants: true,
+          };
+          const shouldUpdateTags = fieldsPresent.tags !== false;
+          const shouldUpdateImages =
+            fieldsPresent.images !== false || fieldsPresent.variants !== false;
+          const shouldUpdateVariants = fieldsPresent.variants !== false;
+          const tagValues = shouldUpdateTags
+            ? (Array.isArray(prodData.tags) ? prodData.tags : [])
+                .map((tag: unknown) =>
+                  typeof tag === "string"
+                    ? tag.trim()
+                    : isRecord(tag) && typeof tag.value === "string"
+                      ? tag.value.trim()
+                      : "",
+                )
+                .filter(Boolean)
+            : Array.isArray(existingMeta.tags)
+              ? existingMeta.tags
+              : [];
+          const optionUpdates = (prodData.variantOptions ?? [])
+            .filter(
+              (option: any) =>
+                typeof option.title === "string" &&
+                Array.isArray(option.values),
+            )
+            .map((option: any) => ({
+              title: option.title,
+              values: option.values.filter(
+                (value: unknown) =>
+                  typeof value === "string" && value.trim().length > 0,
+              ),
+            }));
+          const variantUpdates = (prodData.variants ?? []).flatMap(
+            (variant: any) => {
+              const sanityVariantId =
+                variant.medusa_variant_id || variant.variantId || variant._key;
+              const incomingOptions: Record<string, string> = Array.isArray(
+                variant.options,
+              )
+                ? variant.options.reduce(
+                    (values: Record<string, string>, option: any) => {
+                      if (
+                        typeof option?.option === "string" &&
+                        typeof option?.value === "string"
+                      ) {
+                        values[option.option] = option.value;
+                      }
+                      return values;
+                    },
+                    {},
+                  )
+                : isRecord(variant.options)
+                  ? Object.fromEntries(
+                      Object.entries(variant.options).filter(
+                        (entry): entry is [string, string] =>
+                          typeof entry[1] === "string",
+                      ),
+                    )
+                  : {};
+              const existingVariant = data.inspection.variants?.find(
+                (candidate) => {
+                  if (candidate.id === sanityVariantId) return true;
+                  if (
+                    sanityVariantId &&
+                    candidate.metadata?.sanity_variant_id === sanityVariantId
+                  ) {
+                    return true;
+                  }
+                  if (
+                    typeof variant.sku === "string" &&
+                    variant.sku &&
+                    candidate.sku === variant.sku
+                  ) {
+                    return true;
+                  }
+                  const candidateOptions = Object.fromEntries(
+                    (candidate.options ?? []).flatMap((option) =>
+                      option.option?.title && option.value
+                        ? [[option.option.title, option.value]]
+                        : [],
+                    ),
+                  );
+                  const optionEntries = Object.entries(incomingOptions);
+                  return (
+                    optionEntries.length > 0 &&
+                    optionEntries.length ===
+                      Object.keys(candidateOptions).length &&
+                    optionEntries.every(
+                      ([title, value]) => candidateOptions[title] === value,
+                    )
+                  );
+                },
+              );
+              if (!existingVariant) {
+                return [];
+              }
+              const variantId = existingVariant.id;
+              const variantImages = (variant.images ?? []).map(
+                (image: any, index: number) => ({
+                  url: image.url,
+                  sanity_asset_id:
+                    image.asset?._ref || image._key || `variant_img_${index}`,
+                  alt: {
+                    en:
+                      safeText(image.alt?.en) ||
+                      safeText(image.alt_en) ||
+                      safeText(image.alt),
+                    fr: safeText(image.alt?.fr) || safeText(image.alt_fr),
+                    ar: safeText(image.alt?.ar) || safeText(image.alt_ar),
+                  },
+                }),
+              );
+              return [
+                {
+                  id: variantId,
+                  thumbnail: variantImages[0]?.url ?? null,
+                  ...(safeText(existingVariant.origin_country).toUpperCase() ===
+                  "DZ"
+                    ? { origin_country: null }
+                    : {}),
+                  metadata: {
+                    ...(isRecord(variant.metadata) ? variant.metadata : {}),
+                    variant_images: variantImages,
+                  },
+                },
+              ];
+            },
+          );
+          const translations = {
+            en: {
+              ...(existingTranslations.en || {}),
+              ...(incomingTranslations.en || {}),
+              title: strTitleEn,
+              description: strDescEn,
+              material: resolveLang(prodData.material, "material", "en"),
+            },
+            fr: {
+              ...(existingTranslations.fr || {}),
+              ...(incomingTranslations.fr || {}),
+              title: strTitleFr,
+              description: strDescFr,
+              material: resolveLang(prodData.material, "material", "fr"),
+            },
+            ar: {
+              ...(existingTranslations.ar || {}),
+              ...(incomingTranslations.ar || {}),
+              title: strTitleAr,
+              description: strDescAr,
+              material: resolveLang(prodData.material, "material", "ar"),
+            },
+          };
 
           const realSanityId =
             prodData._id ||
             incomingMeta.sanity_id ||
             data.input.productData?._id ||
             data.inspection.productId!;
+          const incomingOriginCountry = safeText(
+            prodData.originCountry,
+          ).toUpperCase();
 
           return {
             products: [
               {
                 id: data.inspection.productId!,
                 title: strTitleEn,
+                status: ProductStatus.PUBLISHED,
                 subtitle: strTitleFr || null,
                 description: strDescEn || null,
+                material:
+                  resolveLang(prodData.material, "material", "en") || null,
+                ...(incomingOriginCountry
+                  ? {
+                      origin_country:
+                        incomingOriginCountry === "DZ"
+                          ? null
+                          : incomingOriginCountry,
+                    }
+                  : safeText(data.inspection.originCountry).toUpperCase() ===
+                      "DZ"
+                    ? { origin_country: null }
+                    : {}),
                 weight: data.input.productData!.weightGrams ?? 0,
-                thumbnail: data.input.productData!.images?.[0]?.url,
-                images: (prodData.images ?? []).map((image: any) => ({
-                  url: image.url,
-                })),
+                ...(shouldUpdateImages
+                  ? {
+                      ...(prodData.images?.[0]?.url
+                        ? { thumbnail: prodData.images[0].url }
+                        : {}),
+                      images: (prodData.images ?? []).map((image: any) => ({
+                        url: image.url,
+                      })),
+                    }
+                  : {}),
+                ...(shouldUpdateTags
+                  ? {
+                      tags: data.resolvedTagIds.map((id) => ({ id })),
+                    }
+                  : {}),
                 categories: data.resolvedCategoryIds.map((id: string) => ({
                   id,
                 })),
+                ...(optionUpdates.length > 0 ? { options: optionUpdates } : {}),
+                ...(variantUpdates.length > 0
+                  ? { variants: variantUpdates }
+                  : {}),
                 metadata: {
+                  ...existingMeta,
                   ...incomingMeta,
                   sanity_id: realSanityId,
                   is_sync_origin: "sanity",
                   updatedBy: "sanity-studio",
-                  translations: {
-                    en: { title: strTitleEn, description: strDescEn },
-                    fr: { title: strTitleFr, description: strDescFr },
-                    ar: { title: strTitleAr, description: strDescAr },
-                  },
+                  translations,
                   title_en: strTitleEn,
-                  title_fr: strTitleFr,
-                  title_ar: strTitleAr,
-                  description_en: strDescEn,
-                  description_fr: strDescFr,
-                  description_ar: strDescAr,
-                  image_metadata: compiledImageMetadata,
+                  title_fr: translations.fr.title,
+                  title_ar: translations.ar.title,
+                  description_en: translations.en.description,
+                  description_fr: translations.fr.description,
+                  description_ar: translations.ar.description,
+                  material_en: translations.en.material,
+                  material_fr: translations.fr.material,
+                  material_ar: translations.ar.material,
+                  tags: tagValues,
+                  ...(shouldUpdateVariants
+                    ? {
+                        variant_images: incomingMeta.variant_images || {},
+                      }
+                    : {}),
+                  ...(shouldUpdateImages
+                    ? {
+                        image_metadata: compiledImageMetadata,
+                      }
+                    : {}),
                 },
               },
             ],
           };
-        });
+          },
+        );
 
         updateProductsWorkflow.runAsStep({ input: updatePayload });
 
-        // Inventory provisioning and linkage
-        const freshInventoryParams = transform<
-          InventoryBranchTransformInput,
-          CreateFreshInventoryInput
-        >(
-          { inspection, variantSku: variantSkuToken, input, systemDefaults },
-          (data) => {
-            const prodData = data.input.productData || ({} as any);
-            const inventoryTitle =
-              typeof prodData.title === "string"
-                ? prodData.title
-                : String(prodData.title?.en || "CMS Asset");
+        const variantMediaInput = transform(
+          { input, inspection },
+          (data) => ({
+            productHandle:
+              typeof data.input.productData?.slug === "string"
+                ? data.input.productData.slug
+                : "",
+            shouldSync:
+              data.input.productData?.syncFieldsPresent?.variants !== false,
+            previousLinks: data.inspection.variantImageLinks ?? [],
+          }),
+        );
+        syncVariantImagesFromSanityStep(variantMediaInput).config({
+          name: "sync-updated-variant-images",
+        });
 
+        const inventoryInput = transform(
+          { input, systemDefaults },
+          (data) => {
+            const slug = data.input.productData?.slug;
             return {
-              inventoryItemExists: true,
-              preexistingInventoryItemId: data.inspection.inventoryItemId ?? "",
-              sku: data.variantSku,
-              title: `${inventoryTitle} Inventory`,
-              stockLocationId: data.systemDefaults.stockLocationId ?? "",
-              quantity: prodData.stockCount ?? 0,
-              originCountry: prodData.originCountry || undefined,
+              productHandle: typeof slug === "string" ? slug : "",
+              stockLocationId: data.systemDefaults.stockLocationId,
             };
           },
         );
-
-        const inventorySyncResult = createFreshInventoryStep(
-          freshInventoryParams,
-        ).config({
-          name: "update-lane-inventory-provisioning",
-        });
-
-        const workflowWiringPayload = transform<
-          LinkageBranchTransformInput,
-          LinkVariantInventoryInput
-        >(
-          {
-            inspection,
-            inventorySyncResult,
-            systemDefaults,
-            input,
-            variantSku: variantSkuToken,
-          },
-          (data) => ({
-            shouldLink: false,
-            variantId: data.inspection.variantId ?? "",
-            inventoryItemId: data.inventorySyncResult.inventoryItemId,
-            stockLocationId: data.systemDefaults.stockLocationId ?? "",
-            stockedQuantity: data.input.productData?.stockCount ?? 0,
-            sku: data.variantSku,
-          }),
-        );
-
-        linkVariantToInventoryStep(workflowWiringPayload).config({
-          name: "update-lane-relationship-linkage",
+        ensureProductInventoryStep(inventoryInput).config({
+          name: "update-lane-variant-inventory",
         });
       },
     );
@@ -343,7 +568,7 @@ export const sanitySyncProductWorkflow = createWorkflow(
     when("product-absent-creation-branch", isCreateOp, (cond) => cond).then(
       () => {
         const createPayload = transform(
-          { input, systemDefaults, resolvedCategoryIds },
+          { input, systemDefaults, resolvedCategoryIds, resolvedTagIds },
           (data) => {
             const raw = data.input.productData!;
             const mappedProduct = mapSanityToMedusaProduct(
@@ -353,13 +578,44 @@ export const sanitySyncProductWorkflow = createWorkflow(
               data.systemDefaults.salesChannelId,
             );
             return {
-              products: [mappedProduct],
+              products: [
+                {
+                  ...mappedProduct,
+                  tags: data.resolvedTagIds.map((id) => ({ id })),
+                },
+              ],
             };
           },
         );
 
         createProductsWorkflow.runAsStep({
           input: createPayload,
+        });
+
+        const variantMediaInput = transform({ input }, (data) => ({
+          productHandle:
+            typeof data.input.productData?.slug === "string"
+              ? data.input.productData.slug
+              : "",
+          shouldSync:
+            data.input.productData?.syncFieldsPresent?.variants !== false,
+        }));
+        syncVariantImagesFromSanityStep(variantMediaInput).config({
+          name: "sync-created-variant-images",
+        });
+
+        const inventoryInput = transform(
+          { input, systemDefaults },
+          (data) => {
+            const slug = data.input.productData?.slug;
+            return {
+            productHandle: slug || "",
+            stockLocationId: data.systemDefaults.stockLocationId,
+          };
+          },
+        );
+        ensureProductInventoryStep(inventoryInput).config({
+          name: "create-lane-variant-inventory",
         });
       },
     );

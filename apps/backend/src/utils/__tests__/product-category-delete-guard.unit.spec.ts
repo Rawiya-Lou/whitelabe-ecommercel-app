@@ -52,9 +52,9 @@ describe("assertCategoryCanBeDeleted", () => {
       } catch (error) {
         expect(error).toBeInstanceOf(MedusaError);
         const medusaError = error as MedusaError;
-        expect(medusaError.type).toBe(MedusaError.Types.NOT_ALLOWED);
+        expect(medusaError.type).toBe(MedusaError.Types.INVALID_DATA);
         expect(medusaError.message).toBe(
-          'Cannot delete category "Office Desks" while it contains 1 product(s). Remove or reassign those products first.',
+          'Cannot delete a category with assigned products',
         );
       }
     });
@@ -70,8 +70,8 @@ describe("assertCategoryCanBeDeleted", () => {
         ],
       };
 
-      expect(() => assertCategoryCanBeDeleted(category)).toThrowError(
-        'Cannot delete category "Wooden Chairs" while it contains 3 product(s). Remove or reassign those products first.',
+      expect(() => assertCategoryCanBeDeleted(category)).toThrow(
+        'Cannot delete a category with assigned products',
       );
     });
 
@@ -82,8 +82,8 @@ describe("assertCategoryCanBeDeleted", () => {
         products: [{ id: "prod_01" }],
       };
 
-      expect(() => assertCategoryCanBeDeleted(category)).toThrowError(
-        'Cannot delete category "Sale & "Clearance" (2026)" while it contains 1 product(s). Remove or reassign those products first.',
+      expect(() => assertCategoryCanBeDeleted(category)).toThrow(
+        'Cannot delete a category with assigned products',
       );
     });
   });

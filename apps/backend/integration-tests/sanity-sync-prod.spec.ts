@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll } from "vitest";
+import { createHmac } from "node:crypto";
 import { loadEnv, MedusaError } from "@medusajs/framework/utils";
 import path from "path";
 import fs from "fs";
@@ -125,16 +126,19 @@ async function postWebhookToMedusa(
   operation: "create" | "update" | "delete",
   docId: string
 ): Promise<{ status: number; body: any }> {
+  const serializedBody = JSON.stringify(payload);
   const response = await fetch(`${MEDUSA_URL}/sanity-sync`, {
     method: "POST",
     signal: AbortSignal.timeout(60000),
     headers: {
       "Content-Type": "application/json",
-      "x-sanity-sync-token": SECRET_TOKEN,
+      "sanity-webhook-signature": createHmac("sha256", SECRET_TOKEN)
+        .update(serializedBody)
+        .digest("hex"),
       "sanity-operation": operation,
       "sanity-document-id": docId,
     },
-    body: JSON.stringify(payload),
+    body: serializedBody,
   });
 
   const text = await response.text();

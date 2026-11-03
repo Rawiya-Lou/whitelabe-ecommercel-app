@@ -4,7 +4,18 @@ import {
   SanityImagePayload,
   SanityProductPayload,
   SanitySEOPayload,
+  SanityVariantPayload,
 } from "../types";
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const getText = (value: unknown): string =>
+  typeof value === "string" ? value.trim() : "";
+
+type SanityMedusaCreateProduct = Omit<HttpTypes.AdminCreateProduct, "tags"> & {
+  tags?: Array<{ value: string }>;
+};
 
 export function mapSanityToMedusaProduct(
   product: SanityProductPayload & {
@@ -16,21 +27,7 @@ export function mapSanityToMedusaProduct(
   categoryIds: string[],
   shippingProfileId?: string,
   salesChannelId?: string,
-): HttpTypes.AdminCreateProduct {
-  const prices = [
-    {
-      currency_code: "dzd",
-      amount: product.basePriceDzd ? Math.round(product.basePriceDzd * 100) : 0,
-    },
-    {
-      currency_code: "eur",
-      amount: product.basePriceEur ? Math.round(product.basePriceEur * 100) : 0,
-    },
-    {
-      currency_code: "usd",
-      amount: product.basePriceUsd ? Math.round(product.basePriceUsd * 100) : 0,
-    },
-  ];
+): SanityMedusaCreateProduct {
   const BASE_URL = process.env.BACKEND_URL || "http://localhost:9000";
   const brandedPlaceholder =
     process.env.SANITY_IMAGE_FALLBACK_URL ||
@@ -42,16 +39,44 @@ export function mapSanityToMedusaProduct(
     alt: { en: string; fr: string; ar: string };
   }> = [];
 
+  const variantInputs: SanityVariantPayload[] = product.variants?.length
+    ? product.variants
+    : [
+        {
+          title: "Standard Edition",
+          options: { "Variant Option": "Standard" },
+          images: [],
+        },
+      ];
+  const allImageInputs = [
+    ...(product.images ?? []),
+    ...variantInputs.flatMap((variant) => variant.images ?? []),
+  ];
+  const uniqueImageInputs = [
+    ...new Map(
+      allImageInputs.map((image, index) => [
+        image.url || image.asset?._ref || image._key || `image-${index}`,
+        image,
+      ]),
+    ).values(),
+  ];
   const resolvedImages =
-    product.images && product.images.length > 0
-      ? product.images.map((img, index: number) => {
+    uniqueImageInputs.length > 0
+      ? uniqueImageInputs.map((img, index: number) => {
           const imageUrl = img.url || brandedPlaceholder;
           const sanity_asset_id = img.asset?._ref || img._key || `img_${index}`;
 
+          const alt: Record<string, unknown> = isRecord(img.alt)
+            ? img.alt
+            : {};
           const altMap = {
-            en: String(img.alt_en || img.alt || "Product image").trim(),
-            fr: String(img.alt_fr || "").trim(),
-            ar: String(img.alt_ar || "").trim(),
+            en:
+              getText(alt.en) ||
+              getText(img.alt_en) ||
+              getText(img.alt) ||
+              "Product image",
+            fr: getText(alt.fr) || getText(img.alt_fr),
+            ar: getText(alt.ar) || getText(img.alt_ar),
           };
 
           calculatedImageMetadata.push({
@@ -70,15 +95,15 @@ export function mapSanityToMedusaProduct(
       "title" | "description" | "material" | "seo_title" | "seo_description",
     lang: "en" | "fr" | "ar",
   ): string => {
-    if (field && typeof field === "object") {
-      if (field[lang]) return String(field[lang]).trim();
-      if (field[`_${lang}`]) return String(field[`_${lang}`]).trim();
+    if (isRecord(field)) {
+      if (getText(field[lang])) return getText(field[lang]);
+      if (getText(field[`_${lang}`])) return getText(field[`_${lang}`]);
     }
     const metaTranslations =
       (product.metadata?.translations as Record<string, any>) || {};
     if (metaTranslations && metaTranslations[lang]) {
       const val = metaTranslations[lang][metaPath];
-      if (val) return String(val).trim();
+      if (getText(val)) return getText(val);
     }
 
     if (lang === "en" && typeof field === "string") {
@@ -154,43 +179,43 @@ export function mapSanityToMedusaProduct(
     en: {
       title:
         extractTranslation(product.title, "title", "en") ||
-        (product.metadata?.translations?.en?.title as string) ||
+      getText(product.metadata?.translations?.en?.title) ||
         "",
       description:
         extractTranslation(product.description, "description", "en") ||
-        (product.metadata?.translations?.en?.description as string) ||
+        getText(product.metadata?.translations?.en?.description) ||
         "",
       material:
         materialEn ||
-        (product.metadata?.translations?.en?.material as string) ||
+        getText(product.metadata?.translations?.en?.material) ||
         "",
     },
     fr: {
       title:
         extractTranslation(product.title, "title", "fr") ||
-        (product.metadata?.translations?.fr?.title as string) ||
+        getText(product.metadata?.translations?.fr?.title) ||
         "",
       description:
         extractTranslation(product.description, "description", "fr") ||
-        (product.metadata?.translations?.fr?.description as string) ||
+        getText(product.metadata?.translations?.fr?.description) ||
         "",
       material:
         materialFr ||
-        (product.metadata?.translations?.fr?.material as string) ||
+        getText(product.metadata?.translations?.fr?.material) ||
         "",
     },
     ar: {
       title:
         extractTranslation(product.title, "title", "ar") ||
-        (product.metadata?.translations?.ar?.title as string) ||
+        getText(product.metadata?.translations?.ar?.title) ||
         "",
       description:
         extractTranslation(product.description, "description", "ar") ||
-        (product.metadata?.translations?.ar?.description as string) ||
+        getText(product.metadata?.translations?.ar?.description) ||
         "",
       material:
         materialAr ||
-        (product.metadata?.translations?.ar?.material as string) ||
+        getText(product.metadata?.translations?.ar?.material) ||
         "",
     },
   };
@@ -208,9 +233,137 @@ export function mapSanityToMedusaProduct(
     translations.en.description ||
     (typeof product.description === "string" ? product.description : "") ||
     "";
+  const rawOriginCountry = product.originCountry?.trim().toUpperCase();
   const originCountry =
-    product.originCountry?.trim().toUpperCase() || undefined;
+    rawOriginCountry && rawOriginCountry !== "DZ"
+      ? rawOriginCountry
+      : undefined;
+  const inferredOptionValues = new Map<string, Set<string>>();
+  const getVariantOptions = (
+    variant: SanityVariantPayload,
+  ): Record<string, string> => {
+    const options: Record<string, string> = {};
 
+    if (Array.isArray(variant.options)) {
+      for (const optionValue of variant.options) {
+        if (!isRecord(optionValue)) continue;
+        const option = getText(optionValue.option);
+        const value = getText(optionValue.value);
+        if (option && value) options[option] = value;
+      }
+    } else if (isRecord(variant.options)) {
+      for (const [option, rawValue] of Object.entries(variant.options)) {
+        const title = getText(option);
+        const value = getText(rawValue);
+        if (title && value) options[title] = value;
+      }
+    }
+
+    if (Array.isArray(variant.optionValues)) {
+      for (const optionValue of variant.optionValues) {
+        if (!isRecord(optionValue)) continue;
+        const option = getText(optionValue.option);
+        const value = getText(optionValue.value);
+        if (option && value) options[option] = value;
+      }
+    }
+
+    return options;
+  };
+
+  for (const variant of variantInputs) {
+    const optionValues = getVariantOptions(variant);
+
+    for (const [title, value] of Object.entries(optionValues)) {
+      const values = inferredOptionValues.get(title) ?? new Set<string>();
+      values.add(value);
+      inferredOptionValues.set(title, values);
+    }
+  }
+
+  const optionMatrix = (Array.isArray(product.variantOptions)
+    ? product.variantOptions
+    : []
+  )
+    .filter(isRecord)
+    .map((option) => ({
+      title: getText(option.title),
+      values: Array.isArray(option.values)
+        ? [...new Set(option.values.map(getText).filter(Boolean))]
+        : [],
+    }))
+    .filter((option) => option.title && option.values.length > 0);
+  const resolvedOptionMatrix =
+    optionMatrix.length > 0
+      ? optionMatrix
+      : [...inferredOptionValues.entries()].map(([title, values]) => ({
+          title,
+          values: [...values],
+        }));
+  const productOptions =
+    resolvedOptionMatrix.length > 0
+      ? resolvedOptionMatrix
+      : [{ title: "Variant Option", values: ["Standard"] }];
+  const resolvedVariants = variantInputs.map((variant, index) => {
+    const options = getVariantOptions(variant);
+    const variantImages = (variant.images ?? []).map((image) => {
+      const alt: Record<string, unknown> = isRecord(image.alt)
+        ? image.alt
+        : {};
+      return {
+        url: image.url,
+        sanity_asset_id: image.asset?._ref || image._key,
+        alt: {
+          en: getText(alt.en) || getText(image.alt_en) || getText(image.alt),
+          fr: getText(alt.fr) || getText(image.alt_fr),
+          ar: getText(alt.ar) || getText(image.alt_ar),
+        },
+      };
+    });
+    const optionLabel = Object.values(options).join(" / ");
+    const skuSuffix =
+      optionLabel
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "") || String(index + 1);
+
+    return {
+      title: variant.title || optionLabel || "Standard Edition",
+      sku: product.variants?.length
+        ? `SANITY-${String(product._id || "").toUpperCase()}-${skuSuffix.toUpperCase()}`
+        : `SANITY-${String(product._id || "").toUpperCase()}`,
+      options:
+        Object.keys(options).length > 0
+          ? options
+          : { [productOptions[0].title]: productOptions[0].values[0] },
+      metadata: {
+        ...(variant.metadata ?? {}),
+        sanity_variant_id:
+          variant.medusa_variant_id || variant.variantId || variant._key || "",
+        ...((variant.medusa_variant_id || variant.variantId)
+          ? {
+              medusa_variant_id:
+                variant.medusa_variant_id || variant.variantId,
+            }
+          : {}),
+        variant_images: variantImages,
+      },
+      prices: [],
+      ...(variantImages.length > 0
+        ? { thumbnail: variantImages[0].url }
+        : {}),
+    };
+  });
+
+  const variantImages = Object.fromEntries(
+    resolvedVariants.map((variant, index) => [
+      variantInputs[index].medusa_variant_id ||
+        variantInputs[index].variantId ||
+        variantInputs[index]._key ||
+        variant.sku,
+      variant.metadata?.variant_images ?? [],
+    ]),
+  );
   const metadata: Record<string, any> = {
     ...(product.metadata || {}),
     sanity_id: product._id || "",
@@ -218,8 +371,9 @@ export function mapSanityToMedusaProduct(
     product_type: product.productType || null,
     translations,
     highlights: highlights.en.length > 0 ? highlights : rawHighlights,
-    seo: rawSeo,
+    seo,
     tags: rawTags,
+    variant_images: variantImages,
     title_en: String(translations.en?.title) || finalTitle,
     title_fr: String(translations.fr?.title) || "",
     title_ar: String(translations.ar?.title) || "",
@@ -237,7 +391,7 @@ export function mapSanityToMedusaProduct(
     handle,
     description: finalDescription,
     material: finalMaterial,
-    status: ProductStatus.DRAFT,
+    status: ProductStatus.PUBLISHED,
     thumbnail: primaryThumbnail,
     images: resolvedImages,
     subtitle: translations.fr.title || null,
@@ -247,29 +401,24 @@ export function mapSanityToMedusaProduct(
     shipping_profile_id: shippingProfileId || undefined,
     categories: categoryIds.map((id) => ({ id })),
     sales_channels: salesChannelId ? [{ id: salesChannelId }] : [],
-    options: [{ title: "Variant Option", values: ["Standard"] }],
+    tags: rawTags.map((value) => ({ value })),
+    options: productOptions,
     metadata,
-    variants: [
-      {
-        title: "Standard Edition",
-        sku: `SANITY-${String(product._id || "").toUpperCase()}`,
-        material: finalMaterial,
-      
-        barcode: product.barcode || null,
-        options: { "Variant Option": "Standard" },
-        prices,
-        length: product.lengthMm ? parseFloat(product.lengthMm.toString()) : 0,
-        width: product.widthMm ? parseFloat(product.widthMm.toString()) : 0,
-        height: product.heightMm ? parseFloat(product.heightMm.toString()) : 0,
-        origin_country: originCountry,
-        hs_code: product.hsCode ? String(product.hsCode).trim() : null,
-        mid_code: product.midCode ? String(product.midCode).trim() : null,
-        weight: product.weightGrams
-          ? parseFloat(product.weightGrams.toString())
-          : 0,
-        manage_inventory: product.manage_inventory ?? true,
-        allow_backorder: product.allow_backorder ?? false,
-      },
-    ],
+    variants: resolvedVariants.map((variant) => ({
+      ...variant,
+      material: finalMaterial,
+      barcode: product.barcode || null,
+      length: product.lengthMm ? parseFloat(product.lengthMm.toString()) : 0,
+      width: product.widthMm ? parseFloat(product.widthMm.toString()) : 0,
+      height: product.heightMm ? parseFloat(product.heightMm.toString()) : 0,
+      origin_country: originCountry,
+      hs_code: product.hsCode ? String(product.hsCode).trim() : null,
+      mid_code: product.midCode ? String(product.midCode).trim() : null,
+      weight: product.weightGrams
+        ? parseFloat(product.weightGrams.toString())
+        : 0,
+      manage_inventory: product.manage_inventory ?? true,
+      allow_backorder: product.allow_backorder ?? false,
+    })),
   };
 }

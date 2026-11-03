@@ -24,10 +24,6 @@ export const localizedString = defineType({
       name: "en",
       type: "string",
       placeholder: "e.g. Solid Wood Desk",
-      validation: (Rule) =>
-        Rule.required().error(
-          "English is the primary fallback and must be provided.",
-        ),
     }),
     defineField({
       title: "French (Français)",
@@ -82,10 +78,6 @@ export const localizedText = defineType({
       type: "text",
       rows: 3,
       placeholder: "Enter English description...",
-      validation: (Rule) =>
-        Rule.required().error(
-          "English description is required as primary fallback.",
-        ),
     }),
     defineField({
       title: "French (Français)",

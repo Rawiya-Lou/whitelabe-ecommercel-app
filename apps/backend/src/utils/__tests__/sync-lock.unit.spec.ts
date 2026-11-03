@@ -1,38 +1,37 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Redis from "ioredis";
 
-const { mockRedisInstance } = vi.hoisted(() => {
-  return {
-    mockRedisInstance: {
-      set: vi.fn(),
-      get: vi.fn(),
-      del: vi.fn(),
-      on: vi.fn(),
-      connect: vi.fn(),
-    },
-  };
-});
+const { mockRedisInstance } = vi.hoisted(() => ({
+  mockRedisInstance: {
+    set: vi.fn(),
+    get: vi.fn(),
+    exists: vi.fn(),
+    eval: vi.fn(),
+    on: vi.fn(),
+    connect: vi.fn(),
+    status: "wait",
+  },
+}));
 
 vi.mock("ioredis", () => {
   const MockRedis = vi.fn(function () {
     return mockRedisInstance;
   });
-  return {
-    default: MockRedis,
-    Redis: MockRedis,
-  };
+  return { default: MockRedis, Redis: MockRedis };
 });
 
-describe("UniversalSyncLock - Professional Unit & Resilience Suite", () => {
+describe("UniversalSyncLock", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
-
-    // Default healthy mock responses
+    mockRedisInstance.status = "wait";
     mockRedisInstance.set.mockResolvedValue("OK");
-    mockRedisInstance.get.mockResolvedValue("locked");
-    mockRedisInstance.del.mockResolvedValue(1);
-    mockRedisInstance.connect.mockResolvedValue(undefined);
+    mockRedisInstance.get.mockResolvedValue(null);
+    mockRedisInstance.exists.mockResolvedValue(0);
+    mockRedisInstance.eval.mockResolvedValue(1);
+    mockRedisInstance.connect.mockImplementation(async () => {
+      mockRedisInstance.status = "ready";
+    });
   });
 
   afterEach(() => {
@@ -40,154 +39,133 @@ describe("UniversalSyncLock - Professional Unit & Resilience Suite", () => {
     vi.unstubAllEnvs();
   });
 
-  describe("In-Memory Mode (NODE_ENV !== 'production' or REDIS_URL absent)", () => {
-    let syncLock: any;
+  it("uses exclusive memory leases and token-checked release in development", async () => {
+    vi.resetModules();
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("REDIS_URL", "redis://configured-remote-host:6379");
+    const { syncLock } = await import("../sync-lock.js");
 
-    beforeEach(async () => {
-      vi.resetModules();
-      vi.stubEnv("NODE_ENV", "development");
-      delete process.env.REDIS_URL;
+    const lease = await syncLock.acquire("sync:item:1", 10);
+    expect(Redis).not.toHaveBeenCalled();
+    expect(lease).toEqual(expect.any(String));
+    await expect(syncLock.acquire("sync:item:1", 10)).resolves.toBeUndefined();
+    expect(await syncLock.isLocked("sync:item:1")).toBe(true);
 
-      const mod = await import("../sync-lock.js");
-      syncLock = mod.syncLock;
-    });
-
-    it("should acquire and verify an active lock", async () => {
-      expect(await syncLock.isLocked("sync:item:1")).toBe(false);
-
-      await syncLock.acquire("sync:item:1", 10);
-
-      expect(await syncLock.isLocked("sync:item:1")).toBe(true);
-    });
-
-    it("should release a locked key immediately", async () => {
-      await syncLock.acquire("sync:item:2", 15);
-      expect(await syncLock.isLocked("sync:item:2")).toBe(true);
-
-      await syncLock.release("sync:item:2");
-
-      expect(await syncLock.isLocked("sync:item:2")).toBe(false);
-    });
-
-    it("should automatically expire lock once TTL elapses", async () => {
-      await syncLock.acquire("sync:item:expiring", 10); // 10 seconds TTL
-
-      vi.advanceTimersByTime(9900);
-      expect(await syncLock.isLocked("sync:item:expiring")).toBe(true);
-
-      vi.advanceTimersByTime(200);
-      expect(await syncLock.isLocked("sync:item:expiring")).toBe(false);
-    });
-
-    it("should isolate separate lock keys independently", async () => {
-      await syncLock.acquire("key:A", 10);
-
-      expect(await syncLock.isLocked("key:A")).toBe(true);
-      expect(await syncLock.isLocked("key:B")).toBe(false);
-
-      await syncLock.release("key:A");
-      expect(await syncLock.isLocked("key:A")).toBe(false);
-    });
-
-    it("should handle releasing a non-existent key without crashing", async () => {
-      await expect(syncLock.release("key:ghost")).resolves.not.toThrow();
-      expect(await syncLock.isLocked("key:ghost")).toBe(false);
-    });
+    await syncLock.release("sync:item:1", "not-the-owner");
+    expect(await syncLock.isLocked("sync:item:1")).toBe(true);
+    await syncLock.release("sync:item:1", lease);
+    expect(await syncLock.isLocked("sync:item:1")).toBe(false);
   });
 
-  describe("Redis Mode (NODE_ENV === 'production' & REDIS_URL present)", () => {
-    let syncLock: any;
+  it("renews active leases and preserves completed claims until their TTL expires", async () => {
+    vi.resetModules();
+    vi.stubEnv("NODE_ENV", "development");
+    delete process.env.REDIS_URL;
+    const { syncLock } = await import("../sync-lock.js");
 
-    beforeEach(async () => {
-      vi.resetModules();
-      vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("REDIS_URL", "redis://localhost:6379");
+    const lease = await syncLock.acquire("sync:renew", 3);
+    vi.advanceTimersByTime(1100);
+    await Promise.resolve();
+    expect(await syncLock.isLocked("sync:renew")).toBe(true);
 
-      const mod = await import("../sync-lock.js");
-      syncLock = mod.syncLock;
-    });
-
-    it("should initialize Redis with non-blocking fail-safe options", () => {
-      expect(Redis).toHaveBeenCalledWith(
-        "redis://localhost:6379",
-        expect.objectContaining({
-          maxRetriesPerRequest: 1,
-          connectTimeout: 3000,
-          lazyConnect: true,
-          enableOfflineQueue: false,
-        }),
-      );
-    });
-
-    it("should acquire lock via Redis SET command with EX TTL", async () => {
-      await syncLock.acquire("redis:key:1", 30);
-
-      expect(mockRedisInstance.set).toHaveBeenCalledWith(
-        "redis:key:1",
-        "locked",
-        "EX",
-        30,
-      );
-    });
-
-    it("should check lock status via Redis GET command", async () => {
-      mockRedisInstance.get.mockResolvedValueOnce("locked");
-      expect(await syncLock.isLocked("redis:key:1")).toBe(true);
-
-      mockRedisInstance.get.mockResolvedValueOnce(null);
-      expect(await syncLock.isLocked("redis:key:1")).toBe(false);
-
-      expect(mockRedisInstance.get).toHaveBeenCalledWith("redis:key:1");
-    });
-
-    it("should release lock via Redis DEL command and clear memory", async () => {
-      await syncLock.release("redis:key:1");
-
-      expect(mockRedisInstance.del).toHaveBeenCalledWith("redis:key:1");
-    });
+    await syncLock.complete("sync:renew", lease!);
+    vi.advanceTimersByTime(3000);
+    expect(await syncLock.isLocked("sync:renew")).toBe(false);
   });
 
-  describe("Fault Tolerance & Seamless Fallback", () => {
-    let syncLock: any;
+  it("uses process-local leases for test runs even when Redis is configured", async () => {
+    vi.resetModules();
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("REDIS_URL", "redis://configured-remote-host:6379");
+    const { syncLock } = await import("../sync-lock.js");
 
-    beforeEach(async () => {
-      vi.resetModules();
-      vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("REDIS_URL", "redis://localhost:6379");
+    await expect(syncLock.acquire("test:key", 10)).resolves.toEqual(
+      expect.any(String),
+    );
+    expect(Redis).not.toHaveBeenCalled();
+  });
 
-      mockRedisInstance.set.mockRejectedValue(
-        new Error("Redis connection refused"),
-      );
-      mockRedisInstance.get.mockRejectedValue(
-        new Error("Redis socket timeout"),
-      );
-      mockRedisInstance.del.mockRejectedValue(new Error("Redis offline"));
-      mockRedisInstance.connect.mockRejectedValue(new Error("Cannot connect"));
+  it("creates Redis leases with NX and an explicit expiry", async () => {
+    vi.resetModules();
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("REDIS_URL", "redis://localhost:6379");
+    const { syncLock } = await import("../sync-lock.js");
 
-      const mod = await import("../sync-lock.js");
-      syncLock = mod.syncLock;
-    });
+    const lease = await syncLock.acquire("redis:key:1", 30);
+    expect(Redis).toHaveBeenCalledWith(
+      "redis://localhost:6379",
+      expect.objectContaining({
+        maxRetriesPerRequest: 1,
+        connectTimeout: 3000,
+        lazyConnect: true,
+        enableOfflineQueue: false,
+      }),
+    );
+    expect(mockRedisInstance.set).toHaveBeenCalledWith(
+      "redis:key:1",
+      lease,
+      "EX",
+      30,
+      "NX",
+    );
+  });
 
-    it("should seamlessly fall back to memory locks if Redis .set() crashes", async () => {
-      await expect(syncLock.acquire("fallback:key", 10)).resolves.not.toThrow();
+  it("checks Redis lease existence and releases only the matching owner token", async () => {
+    vi.resetModules();
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("REDIS_URL", "redis://localhost:6379");
+    const { syncLock } = await import("../sync-lock.js");
 
-      expect(await syncLock.isLocked("fallback:key")).toBe(true);
+    mockRedisInstance.exists.mockResolvedValueOnce(1).mockResolvedValueOnce(0);
+    expect(await syncLock.isLocked("redis:key:1")).toBe(true);
+    expect(await syncLock.isLocked("redis:key:1")).toBe(false);
 
-      vi.advanceTimersByTime(11000);
-      expect(await syncLock.isLocked("fallback:key")).toBe(false);
-    });
+    await syncLock.release("redis:key:1", "owner-token");
+    expect(mockRedisInstance.eval).toHaveBeenCalledWith(
+      expect.stringContaining("redis.call('get'"),
+      1,
+      "redis:key:1",
+      "owner-token",
+    );
+  });
 
-    it("should seamlessly fall back to memory check if Redis .get() crashes", async () => {
-      await syncLock.acquire("fallback:get", 15);
+  it("waits for Redis readiness before checking a lock", async () => {
+    vi.resetModules();
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("REDIS_URL", "redis://localhost:6379");
+    const { syncLock } = await import("../sync-lock.js");
 
-      await expect(syncLock.isLocked("fallback:get")).resolves.toBe(true);
-    });
+    await expect(syncLock.isLocked("redis:key:startup")).resolves.toBe(false);
 
-    it("should not throw error when Redis .del() crashes during release", async () => {
-      await syncLock.acquire("fallback:del", 15);
+    expect(mockRedisInstance.connect).toHaveBeenCalledOnce();
+    expect(mockRedisInstance.exists).toHaveBeenCalledWith(
+      "redis:key:startup",
+    );
+    expect(mockRedisInstance.connect.mock.invocationCallOrder[0]).toBeLessThan(
+      mockRedisInstance.exists.mock.invocationCallOrder[0],
+    );
+  });
 
-      await expect(syncLock.release("fallback:del")).resolves.not.toThrow();
-      expect(await syncLock.isLocked("fallback:del")).toBe(false);
-    });
+  it("fails closed when Redis is unavailable in production", async () => {
+    vi.resetModules();
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("REDIS_URL", "redis://localhost:6379");
+    mockRedisInstance.set.mockRejectedValue(new Error("Redis unavailable"));
+    const { syncLock } = await import("../sync-lock.js");
+
+    await expect(syncLock.acquire("redis:key:failure", 10)).rejects.toThrow(
+      "Redis unavailable",
+    );
+  });
+
+  it("requires Redis configuration for production locks", async () => {
+    vi.resetModules();
+    vi.stubEnv("NODE_ENV", "production");
+    delete process.env.REDIS_URL;
+    const { syncLock } = await import("../sync-lock.js");
+
+    await expect(syncLock.acquire("production:key", 10)).rejects.toThrow(
+      "REDIS_URL is required",
+    );
   });
 });

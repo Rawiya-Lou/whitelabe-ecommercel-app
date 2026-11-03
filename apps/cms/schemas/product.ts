@@ -18,7 +18,6 @@ export const product = defineType({
       default: true,
       icon: DocumentTextIcon,
     },
-    { name: "pricing", title: "Pricing & Stock" },
     { name: "media", title: "Media", icon: ImageIcon },
     { name: "logistics", title: "Shipping & Customs", icon: TransferIcon },
     { name: "marketing", title: "Marketing & PDP", icon: PresentationIcon },
@@ -40,13 +39,32 @@ export const product = defineType({
       type: "string",
       hidden: true,
     }),
+    defineField({
+      name: "syncOrigin",
+      title: "Synchronization Origin",
+      type: "string",
+      hidden: true,
+      readOnly: true,
+    }),
+    defineField({
+      name: "correlationId",
+      title: "Synchronization Correlation ID",
+      type: "string",
+      hidden: true,
+      readOnly: true,
+    }),
 
     defineField({
       name: "title",
       title: "Product Title",
       type: "localizedString",
       group: "general",
-      validation: (Rule) => Rule.required(),
+      validation: (Rule) =>
+        Rule.required().custom((value: Record<string, unknown>) =>
+          typeof value.en === "string" && value.en.trim()
+            ? true
+            : "An English product title is required.",
+        ),
     }),
 
     defineField({
@@ -87,6 +105,7 @@ export const product = defineType({
         {
           type: "reference",
           to: [{ type: "category" }],
+          weak: true,
           options: {
             disableNew: false,
           },
@@ -134,28 +153,210 @@ export const product = defineType({
             hotspot: true,
           },
           fields: [
-            {
-              name: "alt_en",
-              type: "string",
-              title: "Alt Text (English - Required)",
-              validation: (Rule) => Rule.required(),
-            },
-            {
-              name: "alt_fr",
-              type: "string",
-              title: "Alt Text (French)",
-              validation: (Rule) => Rule.max(500),
-            },
-            {
-              name: "alt_ar",
-              type: "string",
-              title: "Alt Text (Arabic)",
-              validation: (Rule) => Rule.max(500),
-            },
+            defineField({
+              name: "alt",
+              title: "Alternative Text",
+              type: "localizedString",
+            }),
           ],
         },
       ],
       group: "media",
+    }),
+
+    defineField({
+      name: "variantOptions",
+      title: "Variant Option Matrix",
+      type: "array",
+      group: "general",
+      description:
+        "Defines variant dimensions and allowed values (for example, Size: S, M, L or Color: Blue, Black). These options describe what distinguishes each sellable variant; Medusa owns the actual variant, SKU, price, and inventory. Create the option values and variant combinations in Medusa first, then sync the product.",
+      of: [
+        {
+          type: "object",
+          fields: [
+            defineField({ name: "title", title: "Option", type: "string" }),
+            defineField({
+              name: "values",
+              title: "Values",
+              type: "array",
+              of: [{ type: "string" }],
+            }),
+          ],
+        },
+      ],
+    }),
+
+    defineField({
+      name: "variants",
+      title: "Medusa Variants - Editorial Galleries",
+      type: "array",
+      group: "media",
+      description:
+        "Variants are created in Medusa first and appear here after synchronization with their Medusa title, SKU, and options. Do not add variant rows in Sanity. Select an existing Medusa variant row to upload its gallery; all images in the gallery are linked to that variant in Medusa.",
+      options: {
+        disableActions: ["add", "remove", "duplicate"],
+      },
+      of: [
+        {
+          type: "object",
+          groups: [
+            { name: "editorial", title: "Editorial content & gallery", default: true },
+            { name: "identity", title: "Commerce details from Medusa" },
+          ],
+          fields: [
+            defineField({
+              name: "medusa_variant_id",
+              title: "Medusa Variant ID",
+              type: "string",
+              readOnly: true,
+              hidden: ({ parent }) =>
+                !parent?.medusa_variant_id && !parent?.variantId,
+              group: "identity",
+            }),
+            defineField({
+              name: "sku",
+              title: "SKU (from Medusa)",
+              type: "string",
+              readOnly: true,
+              hidden: ({ parent }) =>
+                !parent?.medusa_variant_id && !parent?.variantId,
+              group: "identity",
+            }),
+            defineField({
+              name: "title",
+              title: "Variant title (from Medusa)",
+              type: "string",
+              readOnly: true,
+              hidden: ({ parent }) =>
+                !parent?.medusa_variant_id && !parent?.variantId,
+              group: "identity",
+            }),
+            defineField({
+              name: "options",
+              title: "Options (from Medusa)",
+              type: "array",
+              readOnly: true,
+              hidden: ({ parent }) =>
+                !parent?.medusa_variant_id && !parent?.variantId,
+              group: "identity",
+              of: [
+                {
+                  type: "object",
+                  fields: [
+                    defineField({
+                      name: "option",
+                      title: "Option",
+                      type: "string",
+                    }),
+                    defineField({
+                      name: "value",
+                      title: "Value",
+                      type: "string",
+                    }),
+                  ],
+                },
+              ],
+            }),
+            defineField({
+              name: "optionValues",
+              title: "Option Values",
+              type: "array",
+              hidden: true,
+              group: "identity",
+              of: [
+                {
+                  type: "object",
+                  fields: [
+                    defineField({
+                      name: "option",
+                      title: "Option",
+                      type: "string",
+                    }),
+                    defineField({
+                      name: "value",
+                      title: "Value",
+                      type: "string",
+                    }),
+                  ],
+                },
+              ],
+            }),
+            defineField({
+              name: "description",
+              title: "Variant description",
+              type: "localizedText",
+              group: "editorial",
+            }),
+            defineField({
+              name: "details",
+              title: "Additional variant details",
+              type: "localizedText",
+              description:
+                "Editorial PDP content for this variant, such as fit, care, or compatibility notes. This does not define a sellable option, SKU, price, or inventory value.",
+              group: "editorial",
+            }),
+            defineField({
+              name: "colorHex",
+              title: "Color swatch hex (optional)",
+              type: "string",
+              description:
+                "Optional color chip for storefronts. Upload the full variant imagery in the gallery below.",
+              group: "editorial",
+              validation: (Rule) =>
+                Rule.regex(/^#(?:[0-9a-fA-F]{3}){1,2}$/).warning(),
+            }),
+            defineField({
+              name: "badge",
+              title: "Merchandising badge",
+              type: "localizedString",
+              group: "editorial",
+            }),
+            defineField({
+              name: "images",
+              title: "Variant gallery",
+              type: "array",
+              description:
+                "Upload one or more images for this exact variant. The first gallery image can also serve as its storefront swatch; there is no separate single-image upload.",
+              group: "editorial",
+              of: [
+                {
+                  type: "image",
+                  options: { hotspot: true },
+                  fields: [
+                    defineField({
+                      name: "alt",
+                      title: "Alternative Text",
+                      type: "localizedString",
+                    }),
+                  ],
+                },
+              ],
+            }),
+          ],
+          preview: {
+            select: {
+              title: "title",
+              sku: "sku",
+              options: "options",
+              media: "images.0",
+            },
+            prepare({ title, sku, options, media }) {
+              const optionLabel = Array.isArray(options)
+                ? options
+                    .map((option) => option?.value)
+                    .filter((value): value is string => Boolean(value))
+                    .join(" / ")
+                : "";
+              return {
+                title: title || optionLabel || "Variant",
+                subtitle: [optionLabel, sku].filter(Boolean).join(" | "),
+                media,
+              };
+            },
+          },
+        },
+      ],
     }),
 
     defineField({
@@ -193,6 +394,13 @@ export const product = defineType({
           options: {
             hotspot: true,
           },
+          fields: [
+            defineField({
+              name: "alt",
+              title: "Alternative Text",
+              type: "localizedString",
+            }),
+          ],
         }),
         defineField({
           name: "keywords",

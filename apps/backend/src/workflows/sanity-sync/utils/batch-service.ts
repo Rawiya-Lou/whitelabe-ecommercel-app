@@ -85,17 +85,15 @@ export class SanityMedusaSyncService {
             const validOriginCountry =
               rawOrigin &&
               typeof rawOrigin === "string" &&
-              rawOrigin.trim().length === 2
+              rawOrigin.trim().length === 2 &&
+              rawOrigin.trim().toUpperCase() !== "DZ"
                 ? rawOrigin.trim().toLowerCase()
-                : "dz";
+                : undefined;
 
-            const rawMaterial = sanityProd.material;
             const materialStr =
-              typeof rawMaterial === "string"
-                ? rawMaterial
-                : (rawMaterial as any)?.en ||
-                  (rawMaterial as any)?.fr ||
-                  undefined;
+              typeof medusaPayload.material === "string"
+                ? medusaPayload.material
+                : undefined;
 
             const { tags: _, ...safeProductCreatePayload } =
               medusaPayload as any;
@@ -103,7 +101,9 @@ export class SanityMedusaSyncService {
             const createdProducts = await productModuleService.createProducts([
               {
                 ...safeProductCreatePayload,
-                origin_country: validOriginCountry,
+                ...(validOriginCountry
+                  ? { origin_country: validOriginCountry }
+                  : {}),
                 thumbnail:
                   medusaPayload.thumbnail ||
                   cleanImagesArray[0]?.url ||
@@ -160,7 +160,9 @@ export class SanityMedusaSyncService {
                 await inventoryModuleService.createInventoryItems([
                   {
                     sku: variant.sku,
-                    origin_country: validOriginCountry,
+                    ...(validOriginCountry
+                      ? { origin_country: validOriginCountry }
+                      : {}),
                     material: materialStr,
                     requires_shipping: true,
                     weight: sanityProd.weightGrams

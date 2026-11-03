@@ -32,22 +32,88 @@ export const inspectExistingProductStep = createStep(
     // Core Lookup Pass: Query Graph engine by handle slug
     const { data: productsBySlug } = await query.graph({
       entity: "product",
-      fields: ["id", "handle", "variants.id", "variants.sku"],
+      fields: [
+        "id",
+        "handle",
+        "title",
+        "subtitle",
+        "description",
+        "origin_country",
+        "metadata",
+        "variants.id",
+        "variants.sku",
+        "variants.origin_country",
+        "variants.metadata",
+        "variants.options.value",
+        "variants.options.option.title",
+        "variants.images.id",
+        "variants.images.url",
+        "images.id",
+        "images.url",
+      ],
       filters: { handle: [normalizedSlug] },
     });
+
+    let existingProduct:
+      | {
+          title?: string;
+          subtitle?: string | null;
+          description?: string;
+          originCountry?: string | null;
+          metadata?: Record<string, unknown> | null;
+          variantImageLinks?: Array<{
+            variantId: string;
+            imageIds: string[];
+          }>;
+          variants?: ProductInspectionDTO["variants"];
+        }
+      | undefined;
 
     if (productsBySlug && productsBySlug.length > 0) {
       const product = productsBySlug[0];
       productExists = true;
       productId = product.id;
       variantId = product.variants?.[0]?.id;
+      existingProduct = {
+        title: product.title ?? undefined,
+        subtitle: product.subtitle,
+        description: product.description ?? undefined,
+        originCountry: product.origin_country,
+        metadata: product.metadata as Record<string, unknown> | null,
+        variantImageLinks: (product.variants ?? []).map((variant: any) => {
+          const variantImages = Array.isArray(variant.metadata?.variant_images)
+            ? variant.metadata.variant_images
+            : [];
+          const imageUrls = new Set(
+            variantImages.flatMap((image: any) =>
+              typeof image?.url === "string" ? [image.url] : [],
+            ),
+          );
+          return {
+            variantId: variant.id,
+            imageIds: (product.images ?? [])
+              .filter((image: any) => imageUrls.has(image.url))
+              .map((image: any) => image.id),
+          };
+        }),
+        variants: product.variants ?? [],
+      };
     }
 
     // Orphan Protection Pass: If not found by slug, search directly by Variant SKU
     if (!productExists && normalizedSku) {
       const { data: variantsBySku } = await query.graph({
         entity: "product_variant",
-        fields: ["id", "sku", "product.id"],
+        fields: [
+          "id",
+          "sku",
+          "product.id",
+          "product.title",
+          "product.subtitle",
+          "product.description",
+          "product.origin_country",
+          "product.metadata",
+        ],
         filters: { sku: [normalizedSku] },
       });
 
@@ -56,6 +122,18 @@ export const inspectExistingProductStep = createStep(
         variantId = foundVariant.id;
         productId = foundVariant.product?.id;
         productExists = !!productId; // Becomes an update if a parent product is linked
+        const foundProduct = foundVariant.product;
+        existingProduct = foundProduct
+          ? {
+              title: foundProduct.title ?? undefined,
+              subtitle: foundProduct.subtitle,
+              description: foundProduct.description ?? undefined,
+              originCountry: foundProduct.origin_country,
+              metadata: foundProduct.metadata as
+                | Record<string, unknown>
+                | null,
+            }
+          : undefined;
 
         logger.info(
           `[Sanity Sync Guard] Orphaned variant detected for SKU [${normalizedSku}]. Safely healing database reference routing map.`,
@@ -74,11 +152,18 @@ export const inspectExistingProductStep = createStep(
       `[Sanity Sync] Inspection Matrix for [${normalizedSlug}]: Product Exists = ${productExists} | Inventory Item Exists = ${!!inventoryItem}`,
     );
 
-    return new StepResponse<ProductInspectionDTO>({
+    return new StepResponse({
       productExists,
       productId,
       inventoryItemId: inventoryItem?.id,
       variantId,
+      title: existingProduct?.title,
+      subtitle: existingProduct?.subtitle,
+      description: existingProduct?.description,
+      originCountry: existingProduct?.originCountry,
+      metadata: existingProduct?.metadata,
+      variantImageLinks: existingProduct?.variantImageLinks,
+      variants: existingProduct?.variants,
     });
   },
 );
