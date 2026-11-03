@@ -188,6 +188,7 @@ export const syncProductToSanityStep = createStep(
         (language) => safeText(current[language]) === safeText(desired[language]),
       );
     const sameCommerceStructure =
+      document !== null &&
       document?.medusaId === product.id &&
       sameLocalizedValue(document.title, titleObj) &&
       sameLocalizedValue(document.description, descObj) &&
