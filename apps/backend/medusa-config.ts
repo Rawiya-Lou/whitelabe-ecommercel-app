@@ -1,10 +1,12 @@
 import { loadEnv, defineConfig } from "@medusajs/framework/utils";
+import { getBackendPublicUrl } from "./src/utils/backend-url";
 
 loadEnv(process.env.NODE_ENV || "development", process.cwd());
 // If running locally, prefix with "dev_". If live, prefix with "prod_"
 const isProd = process.env.NODE_ENV === "production";
 const redisNamespacePrefix = isProd ? "prod_" : "dev_";
 const redisUrl = isProd ? process.env.REDIS_URL : undefined;
+const backendPublicUrl = getBackendPublicUrl();
 const eventBusModuleConfig = isProd
   ? {
       resolve: "@medusajs/medusa/event-bus-redis",
@@ -78,9 +80,7 @@ const config = defineConfig({
             options: {
               // Points directly to your static folder root inside apps/backend
               upload_dir: "static",
-              backend_url: process.env.BACKEND_URL
-                ? `${process.env.BACKEND_URL}/static`
-                : "http://localhost:9000/static",
+              backend_url: `${backendPublicUrl || "http://localhost:9000"}/static`,
             },
           },
         ],

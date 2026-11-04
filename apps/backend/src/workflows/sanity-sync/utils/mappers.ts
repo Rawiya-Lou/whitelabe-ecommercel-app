@@ -6,6 +6,7 @@ import {
   SanitySEOPayload,
   SanityVariantPayload,
 } from "../types";
+import { getSanityImageFallbackUrl } from "../../../utils/backend-url";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -28,10 +29,7 @@ export function mapSanityToMedusaProduct(
   shippingProfileId?: string,
   salesChannelId?: string,
 ): SanityMedusaCreateProduct {
-  const BASE_URL = process.env.BACKEND_URL || "http://localhost:9000";
-  const brandedPlaceholder =
-    process.env.SANITY_IMAGE_FALLBACK_URL ||
-    `${BASE_URL}/static/placeholder.png`;
+  const brandedPlaceholder = getSanityImageFallbackUrl();
 
   const calculatedImageMetadata: Array<{
     url: string;

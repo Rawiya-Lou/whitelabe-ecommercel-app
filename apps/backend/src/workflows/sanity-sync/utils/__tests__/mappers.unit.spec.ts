@@ -250,6 +250,27 @@ describe("mapSanityToMedusaProduct", () => {
   });
 
   describe("Multilingual Resolution & Fallbacks", () => {
+    it("uses the public Render URL for products without images", () => {
+      delete process.env.BACKEND_URL;
+      delete process.env.SANITY_IMAGE_FALLBACK_URL;
+      process.env.RENDER_EXTERNAL_URL = "https://backend.example.com/";
+
+      const result = mapSanityToMedusaProduct(
+        createBaseMockProduct({ images: [] }) as any,
+        [],
+      );
+
+      expect(result.thumbnail).toBe(
+        "https://backend.example.com/static/placeholder.png",
+      );
+      expect(result.images).toEqual([
+        {
+          url: "https://backend.example.com/static/placeholder.png",
+          alt: "Product placeholder",
+        },
+      ]);
+    });
+
     it("keeps optional empty localized fields empty without coercing objects to text", () => {
       const mockProduct = createBaseMockProduct({
         title: { en: "Optional Fields Product" },

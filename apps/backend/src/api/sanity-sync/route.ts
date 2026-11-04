@@ -17,6 +17,7 @@ import {
 } from "../../workflows/sanity-sync/types";
 
 import { syncLock } from "../../utils/sync-lock";
+import { getSanityImageFallbackUrl } from "../../utils/backend-url";
 
 export interface SanityRawWebhookReference {
   _key?: string;
@@ -181,9 +182,7 @@ const getSafeImageUrl = (
   return getSanityCdnUrl(token, projectId, dataset, fallbackUrl);
 };
 
-const BASE_URL = process.env.BACKEND_URL;
-const DEFAULT_FALLBACK =
-  process.env.SANITY_IMAGE_FALLBACK_URL || `${BASE_URL}/static/placeholder.png`;
+const DEFAULT_FALLBACK = getSanityImageFallbackUrl();
 const getSanityCdnUrl = (
   refId: string,
   projectId: string,

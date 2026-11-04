@@ -1,6 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createStep, StepResponse } from "@medusajs/framework/workflows-sdk";
-import { ContainerRegistrationKeys } from "@medusajs/framework/utils";
+import {
+  ContainerRegistrationKeys,
+  MedusaError,
+} from "@medusajs/framework/utils";
 import { Logger } from "@medusajs/framework/types";
 import { SANITY_MODULE } from "../../../modules/sanity-sync/index";
 import SanityModuleService from "../../../modules/sanity-sync/service";
@@ -31,6 +34,9 @@ export const syncProductToSanityStep = createStep(
     const sanityService = container.resolve<SanityModuleService>(SANITY_MODULE);
 
     if (await syncLock.isLocked(`sanity-sync:${productId}`)) {
+      logger.warn(
+        `[Sanity Product Sync] Skipping product ${productId} because its sync lease is active.`,
+      );
       return new StepResponse({ skipped: true, reason: "sync_in_progress" });
     }
 
@@ -60,7 +66,10 @@ export const syncProductToSanityStep = createStep(
 
     const product = products?.[0];
     if (!product) {
-      return new StepResponse({ skipped: true, reason: "not_found" });
+      throw new MedusaError(
+        MedusaError.Types.NOT_FOUND,
+        `Cannot synchronize missing Medusa product "${productId}" to Sanity.`,
+      );
     }
 
     const metadata = (product.metadata ?? {}) as Record<string, any>;
@@ -80,11 +89,7 @@ export const syncProductToSanityStep = createStep(
       logger.error(
         `[Sanity Product Sync] Could not read product ${sanityId}: ${message}`,
       );
-      return new StepResponse({
-        success: false,
-        productId,
-        reason: "sanity_unavailable",
-      });
+      throw error;
     }
     const document = isRecord(previousDocument) ? previousDocument : null;
 
@@ -198,6 +203,9 @@ export const syncProductToSanityStep = createStep(
       JSON.stringify([...existingTagValues].sort()) ===
         JSON.stringify([...tagValues].sort());
     if (sameCommerceStructure) {
+      logger.info(
+        `[Sanity Product Sync] Product ${productId} is already current in Sanity; mutation skipped.`,
+      );
       return new StepResponse({
         success: true,
         productId,
@@ -233,19 +241,28 @@ export const syncProductToSanityStep = createStep(
         { patch: { id: sanityId, set: patchSet } },
       ]);
     } catch (error) {
-      await syncLock.consume(`sanity-echo:${sanityId}`);
+      try {
+        await syncLock.consume(`sanity-echo:${sanityId}`);
+      } catch (cleanupError) {
+        const cleanupMessage =
+          cleanupError instanceof Error
+            ? cleanupError.message
+            : String(cleanupError);
+        logger.error(
+          `[Sanity Product Sync] Could not clear echo marker for ${sanityId}: ${cleanupMessage}`,
+        );
+      }
       const message =
         error instanceof Error ? error.message : "Unknown Sanity mutation failure";
       logger.error(
         `[Sanity Product Sync] Could not update product ${sanityId}: ${message}`,
       );
-      return new StepResponse({
-        success: false,
-        productId,
-        reason: "sanity_unavailable",
-      });
+      throw error;
     }
 
+    logger.info(
+      `[Sanity Product Sync] Updated Sanity product ${sanityId} from Medusa product ${productId}.`,
+    );
     return new StepResponse(
       { success: true, productId, correlationId, stateFingerprint },
       { sanityId, document },
