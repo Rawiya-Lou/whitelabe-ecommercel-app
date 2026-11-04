@@ -48,15 +48,13 @@ export const syncProductMaterialToInventoryStep = createStep(
     const material =
       normalizeMaterial(product.material) ??
       normalizeMaterial(translations?.en?.material);
-    const skus = [
-      ...new Set(
-        (product.variants ?? []).flatMap((variant) =>
-          typeof variant.sku === "string" && variant.sku.trim()
-            ? [variant.sku.trim()]
-            : [],
-        ),
-      ),
-    ];
+    const skus = new Set<string>();
+    for (const variant of product.variants ?? []) {
+      const sku: unknown = variant.sku;
+      if (typeof sku === "string" && sku.trim()) {
+        skus.add(sku.trim());
+      }
+    }
     const updatedItems: InventoryMaterialSnapshot[] = [];
 
     for (const sku of skus) {
