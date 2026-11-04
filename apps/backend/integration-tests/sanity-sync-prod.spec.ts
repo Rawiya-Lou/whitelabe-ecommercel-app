@@ -9,6 +9,14 @@ loadEnv(process.env.NODE_ENV || "production", process.cwd());
 const PROJECT_ID =
   process.env.SANITY_PROJECT_ID || process.env.SANITY_STUDIO_PROJECT_ID;
 const DATASET = "production";
+const getDataset = (): string => {
+  if (!DATASET) {
+    throw new Error(
+      "Set SANITY_DATASET or SANITY_STUDIO_DATASET before running this deployed test.",
+    );
+  }
+  return DATASET;
+};
 const SANITY_TOKEN = process.env.SANITY_API_TOKEN;
 const MEDUSA_URL = (
   process.env.BACKEND_URL ||
@@ -19,6 +27,27 @@ const SECRET_TOKEN = process.env.SANITY_SYNC_SECRET_TOKEN || "";
 
 // Global cached asset for 100% reliable fallbacks
 let cachedFallbackAsset: { id: string; url: string };
+
+const getNetworkErrorCode = (error: unknown): string | undefined => {
+  if (!(error instanceof Error) || !("cause" in error)) return undefined;
+  const cause = error.cause;
+  if (typeof cause !== "object" || cause === null || !("code" in cause)) {
+    return undefined;
+  }
+  return typeof cause.code === "string" ? cause.code : undefined;
+};
+
+const isRetryableNetworkError = (error: unknown): boolean => {
+  const code = getNetworkErrorCode(error);
+  return (
+    error instanceof TypeError ||
+    code === "UND_ERR_CONNECT_TIMEOUT" ||
+    code === "UND_ERR_SOCKET" ||
+    code === "ECONNRESET" ||
+    code === "ETIMEDOUT" ||
+    code === "EAI_AGAIN"
+  );
+};
 
 async function waitForRenderWakeup(maxWaitMs = 90000): Promise<void> {
   console.log(
@@ -62,7 +91,7 @@ async function uploadRemoteImageToSanity(
     const arrayBuffer = await res.arrayBuffer();
 
     const uploadUrl = `https://${PROJECT_ID}.api.sanity.io/v2021-06-07/assets/images/${encodeURIComponent(
-      DATASET,
+      getDataset(),
     )}?filename=${encodeURIComponent(fileName)}`;
 
     const uploadRes = await fetch(uploadUrl, {
@@ -99,7 +128,7 @@ function createOpenGraphImage(primaryAssetId: string) {
 
 async function mutateSanity(mutations: object[]): Promise<any> {
   const url = `https://${PROJECT_ID}.api.sanity.io/v2021-06-07/data/mutate/${encodeURIComponent(
-    DATASET,
+    getDataset(),
   )}?returnDocuments=true`;
 
   const response = await fetch(url, {
@@ -127,32 +156,74 @@ async function postWebhookToMedusa(
   docId: string
 ): Promise<{ status: number; body: any }> {
   const serializedBody = JSON.stringify(payload);
-  const response = await fetch(`${MEDUSA_URL}/sanity-sync`, {
-    method: "POST",
-    signal: AbortSignal.timeout(60000),
-    headers: {
-      "Content-Type": "application/json",
-      "sanity-webhook-signature": createHmac("sha256", SECRET_TOKEN)
-        .update(serializedBody)
-        .digest("hex"),
-      "sanity-operation": operation,
-      "sanity-document-id": docId,
-    },
-    body: serializedBody,
-  });
-
-  const text = await response.text();
+  const headers = {
+    "Content-Type": "application/json",
+    "sanity-webhook-signature": createHmac("sha256", SECRET_TOKEN)
+      .update(serializedBody)
+      .digest("hex"),
+    "sanity-operation": operation,
+    "sanity-document-id": docId,
+  };
+  let response: Response | undefined;
   let body: any;
-  try {
-    body = JSON.parse(text);
-  } catch {
-    body = text;
+
+  for (let attempt = 0; attempt < 7; attempt += 1) {
+    try {
+      response = await fetch(`${MEDUSA_URL}/sanity-sync`, {
+        method: "POST",
+        signal: AbortSignal.timeout(60000),
+        headers,
+        body: serializedBody,
+      });
+    } catch (error) {
+      if (!isRetryableNetworkError(error) || attempt === 6) {
+        throw error;
+      }
+
+      const delayMs = Math.min(15000, 1000 * 2 ** attempt);
+      console.warn(
+        `  ⚠ Network error posting ${docId} to Medusa (${getNetworkErrorCode(error) || "fetch failure"}); retry ${attempt + 1}/6 in ${delayMs}ms.`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      continue;
+    }
+
+    const text = await response.text();
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = text;
+    }
+
+    const retryableStatus =
+      response.status === 409 ||
+      response.status === 429 ||
+      response.status >= 500;
+    if (!retryableStatus || attempt === 6) break;
+
+    const retryAfter = Number(response.headers.get("retry-after"));
+    const delayMs =
+      Number.isFinite(retryAfter) && retryAfter > 0
+        ? retryAfter * 1000
+        : Math.min(15000, 1000 * 2 ** attempt);
+    console.warn(
+      `  ⚠ Medusa returned ${response.status} for ${docId}; retry ${attempt + 1}/6 in ${delayMs}ms.`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
 
-  // IF ALREADY CREATED BY LIVE SANITY WEBHOOK, IT'S A SUCCESS:
+  if (!response) {
+    throw new Error(`No Medusa webhook response was received for ${docId}.`);
+  }
+
+  // The live Sanity webhook can finish the same test mutation before this explicit request.
   const errorText = JSON.stringify(body);
-  if (operation === "create" && errorText.includes("already exists")) {
-    console.log(`  ✔ Already synced automatically via Live Sanity Webhook!`);
+  if (
+    operation === "create" &&
+    response.status >= 300 &&
+    errorText.includes("already exists")
+  ) {
+    console.log("  ✔ Already synced automatically via Live Sanity Webhook!");
     return { status: 200, body: { success: true, alreadySynced: true } };
   }
 
@@ -992,6 +1063,7 @@ const PRODUCTS_SPEC = [
 describe("Production Everyday Clothing Catalog (All Schema Fields)", () => {
 beforeAll(async () => {
     expect(PROJECT_ID, "SANITY_PROJECT_ID required").toBeTruthy();
+    expect(DATASET, "SANITY_DATASET or SANITY_STUDIO_DATASET required").toBeTruthy();
     expect(SANITY_TOKEN, "SANITY_API_TOKEN required").toBeTruthy();
     expect(MEDUSA_URL, "MEDUSA_BACKEND_URL required").toBeTruthy();
 
@@ -1020,7 +1092,7 @@ beforeAll(async () => {
     }
 
     const uploadUrl = `https://${PROJECT_ID}.api.sanity.io/v2021-06-07/assets/images/${encodeURIComponent(
-      DATASET
+      getDataset()
     )}?filename=store-placeholder.png`;
 
     const res = await fetch(uploadUrl, {

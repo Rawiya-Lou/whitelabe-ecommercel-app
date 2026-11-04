@@ -182,6 +182,54 @@ Product deletes invoke `deleteProductFromSanityWorkflow`. Category attach and
 detach events resync the affected product, allowing the Sanity product's
 category references to reflect the current Medusa associations.
 
+### Opt-in deployed outbound smoke test
+
+`integration-tests/sanity-sync-outbound-prod.spec.ts` verifies the live
+Medusa-to-Sanity path independently of the Sanity-to-Medusa webhook test. It
+logs in to the deployed Admin API, creates a uniquely named category and draft
+product with title, subtitle, description, material, and one option-backed
+variant, then polls the configured Sanity dataset to verify the mapped content
+and weak category reference. The Medusa subtitle is expected in Sanity's
+French `title.fr` value; the current schema has no separate product subtitle
+field. The test target is deliberately separate from local Studio settings:
+`SANITY_SYNC_TEST_DATASET` must be set explicitly to the same dataset configured
+on the deployed Medusa service.
+
+Run it intentionally from `apps/backend` with `MEDUSA_BACKEND_URL`, either a
+valid Medusa Admin user JWT in `MEDUSA_ADMIN_TOKEN` (not a publishable or
+secret API key) or both
+`MEDUSA_ADMIN_EMAIL` and `MEDUSA_ADMIN_PASSWORD`, `SANITY_PROJECT_ID` (or
+`SANITY_STUDIO_PROJECT_ID`), `SANITY_SYNC_TEST_DATASET`, and a read-capable
+`SANITY_API_TOKEN` configured in the environment. For Render in this
+deployment, set `SANITY_SYNC_TEST_DATASET=production` even if your local
+`SANITY_STUDIO_DATASET` is `development`. The configured Admin token is
+validated with a read-only Admin API request before any production records are
+created; if rejected, email/password login is used when both credentials are
+available. When both authentication methods are configured, a rejected token
+falls back to email/password login.
+
+```powershell
+npm run test:sync:outbound:deployed
+```
+
+The test does not run unless its explicit opt-in script is used. It creates
+draft production records and retains them for inspection in Medusa Admin and
+Sanity Studio. Its structured output includes the generated IDs, Admin API
+statuses, Sanity read-back snapshots, and Render log hints for the corresponding
+subscriber and workflow execution. Do not run it against production unless
+you intend to create these test records.
+
+The deployed smoke test first allows 20 seconds for the normal event subscriber
+path. If a document is still absent, it invokes `POST /admin/sanity-sync` with
+the Medusa entity type and ID, then verifies Sanity again. This Admin-authenticated
+diagnostic endpoint runs the same outbound workflow directly and logs the
+configured project and dataset. If the explicit workflow trigger succeeds while
+the initial observation did not, the Sanity credentials/mutation path works and
+investigation should focus on event publication, subscriber registration, or
+event-bus delivery. If it fails, its response and Render application logs
+identify the workflow/Sanity stage. The direct trigger is a diagnostic fallback;
+it does not prove that the event subscriber worked.
+
 ### Category events
 
 Category create/update events invoke `syncCategoryToSanityWorkflow`, which

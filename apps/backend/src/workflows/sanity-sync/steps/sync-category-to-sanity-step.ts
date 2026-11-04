@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { createStep, StepResponse } from "@medusajs/framework/workflows-sdk";
-import { ContainerRegistrationKeys } from "@medusajs/framework/utils";
+import {
+  ContainerRegistrationKeys,
+  MedusaError,
+} from "@medusajs/framework/utils";
+import type { Logger } from "@medusajs/framework/types";
 import { SANITY_MODULE } from "../../../modules/sanity-sync/index";
 import SanityModuleService from "../../../modules/sanity-sync/service";
 import { syncLock } from "../../../utils/sync-lock";
@@ -21,6 +25,7 @@ export const syncCategoryToSanityStep = createStep(
     { container },
   ): Promise<StepResponse<Record<string, unknown>, CategorySnapshot>> => {
     const query = container.resolve(ContainerRegistrationKeys.QUERY);
+    const logger = container.resolve<Logger>(ContainerRegistrationKeys.LOGGER);
     const sanityService = container.resolve<SanityModuleService>(SANITY_MODULE);
     const { data: categories } = await query.graph({
       entity: "product_category",
@@ -37,7 +42,13 @@ export const syncCategoryToSanityStep = createStep(
     });
     const category = categories?.[0];
     if (!category) {
-      return new StepResponse({ skipped: true, reason: "not_found" });
+      logger.error(
+        `[Sanity Category Sync] Medusa category ${categoryId} was not found during outbound synchronization.`,
+      );
+      throw new MedusaError(
+        MedusaError.Types.NOT_FOUND,
+        `Cannot synchronize missing Medusa category "${categoryId}" to Sanity.`,
+      );
     }
 
     const metadata = isRecord(category.metadata) ? category.metadata : {};
@@ -45,7 +56,11 @@ export const syncCategoryToSanityStep = createStep(
       typeof metadata.sanity_id === "string" && metadata.sanity_id
         ? metadata.sanity_id
         : category.id;
+    const { projectId, dataset } = sanityService.clientConfig;
     const correlationId = randomUUID();
+    logger.info(
+      `[Sanity Category Sync] Preparing category ${categoryId} for Sanity document ${sanityId}; project=${projectId}, dataset=${dataset}, metadataSanityId=${typeof metadata.sanity_id === "string" ? metadata.sanity_id : "missing"}.`,
+    );
     const previousDocument = await sanityService.query(
       '*[_id == $id][0]',
       { id: sanityId },
@@ -92,7 +107,7 @@ export const syncCategoryToSanityStep = createStep(
     await syncLock.mark(`medusa-sync:${sanityId}`, correlationId, 120);
     await syncLock.mark(`medusa-sync:${category.id}`, correlationId, 120);
     try {
-      await sanityService.mutate([
+      const mutationResult = await sanityService.mutate([
         {
           createIfNotExists: {
             _id: sanityId,
@@ -101,8 +116,26 @@ export const syncCategoryToSanityStep = createStep(
         },
         { patch: { id: sanityId, set: patchSet } },
       ]);
+      const resultRecord = isRecord(mutationResult) ? mutationResult : {};
+      logger.info(
+        `[Sanity Category Sync] Sanity mutation succeeded for Medusa category ${categoryId}; document=${sanityId}, project=${projectId}, dataset=${dataset}, transactionId=${String(resultRecord.transactionId ?? "unknown")}.`,
+      );
     } catch (error) {
-      await syncLock.consume(`sanity-echo:${sanityId}`);
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error(
+        `[Sanity Category Sync] Sanity mutation failed for Medusa category ${categoryId}; document=${sanityId}, project=${projectId}, dataset=${dataset}: ${message}`,
+      );
+      try {
+        await syncLock.consume(`sanity-echo:${sanityId}`);
+      } catch (cleanupError) {
+        const cleanupMessage =
+          cleanupError instanceof Error
+            ? cleanupError.message
+            : String(cleanupError);
+        logger.warn(
+          `[Sanity Category Sync] Failed to clear Sanity echo marker for ${sanityId}: ${cleanupMessage}`,
+        );
+      }
       throw error;
     }
 
