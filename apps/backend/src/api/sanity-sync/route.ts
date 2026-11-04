@@ -18,6 +18,7 @@ import {
 
 import { syncLock } from "../../utils/sync-lock";
 import { getSanityImageFallbackUrl } from "../../utils/backend-url";
+import { getSanityConfig } from "../../modules/sanity-sync/config";
 
 export interface SanityRawWebhookReference {
   _key?: string;
@@ -215,11 +216,9 @@ export async function POST(
   let eventLease: { key: string; token: string } | undefined;
   const syncLeases: Array<{ key: string; token: string }> = [];
 
-  const projectId =
-    process.env.SANITY_PROJECT_ID || process.env.SANITY_STUDIO_PROJECT_ID;
-
-  const dataset =
-    process.env.SANITY_DATASET || process.env.SANITY_STUDIO_DATASET || "";
+  const sanityConfig = getSanityConfig();
+  const projectId = sanityConfig.projectId || "";
+  const dataset = sanityConfig.dataset || "";
 
   const imgFallbackUrl = DEFAULT_FALLBACK;
   const tokenHeader = req.headers["x-sanity-sync-token"];
@@ -288,13 +287,13 @@ export async function POST(
     return;
   }
 
-  if (!projectId) {
+  if (!projectId || !dataset) {
     logger.error(
-      "[Sanity Sync Hook] Critical error: SANITY_PROJECT_ID environment variable is missing.",
+      "[Sanity Sync Hook] Sanity project ID or dataset is missing.",
     );
     res
       .status(500)
-      .json({ error: "System integration variable gap encountered." });
+      .json({ error: "Sanity project ID and dataset must be configured." });
     return;
   }
 

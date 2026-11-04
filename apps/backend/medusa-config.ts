@@ -1,5 +1,6 @@
-import { loadEnv, defineConfig } from "@medusajs/framework/utils";
+import { loadEnv, defineConfig, MedusaError } from "@medusajs/framework/utils";
 import { getBackendPublicUrl } from "./src/utils/backend-url";
+import { getSanityConfig } from "./src/modules/sanity-sync/config";
 
 loadEnv(process.env.NODE_ENV || "development", process.cwd());
 // If running locally, prefix with "dev_". If live, prefix with "prod_"
@@ -7,6 +8,17 @@ const isProd = process.env.NODE_ENV === "production";
 const redisNamespacePrefix = isProd ? "prod_" : "dev_";
 const redisUrl = isProd ? process.env.REDIS_URL : undefined;
 const backendPublicUrl = getBackendPublicUrl();
+const { projectId: sanityProjectId, dataset: sanityDataset, apiToken: sanityApiToken } =
+  getSanityConfig();
+if (
+  isProd &&
+  (!redisUrl || !sanityProjectId || !sanityDataset || !sanityApiToken)
+) {
+  throw new MedusaError(
+    MedusaError.Types.INVALID_DATA,
+    "Production sync requires REDIS_URL, a Sanity project ID (SANITY_PROJECT_ID or SANITY_STUDIO_PROJECT_ID), a dataset (SANITY_DATASET or SANITY_STUDIO_DATASET), and SANITY_API_TOKEN.",
+  );
+}
 const eventBusModuleConfig = isProd
   ? {
       resolve: "@medusajs/medusa/event-bus-redis",
@@ -89,9 +101,9 @@ const config = defineConfig({
      {
       resolve: "./src/modules/sanity-sync",
       options: {
-        project_id: process.env.SANITY_STUDIO_PROJECT_ID,
-        api_token: process.env.SANITY_API_TOKEN,
-        dataset: process.env.SANITY_STUDIO_DATASET || "",
+        project_id: sanityProjectId || "",
+        api_token: sanityApiToken || "",
+        dataset: sanityDataset || "",
       },
     },
     {

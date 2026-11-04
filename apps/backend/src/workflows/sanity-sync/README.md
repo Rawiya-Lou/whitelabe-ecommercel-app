@@ -338,9 +338,14 @@ catalog database.
 ## Operational notes and limits
 
 - Configure the Sanity webhook to call `POST /sanity-sync` with either the
-  configured token header or a raw-body HMAC-SHA256 signature. Configure
-  `SANITY_PROJECT_ID`, dataset, Sanity API token, signing secret, and production
-  `REDIS_URL` in the backend environment.
+  configured token header or a raw-body HMAC-SHA256 signature. Configure a
+  Sanity project ID, dataset, write-enabled `SANITY_API_TOKEN`, signing secret,
+  production `REDIS_URL`, and `NODE_ENV=production` in the backend environment.
+  If both `SANITY_PROJECT_ID`/`SANITY_STUDIO_PROJECT_ID` or
+  `SANITY_DATASET`/`SANITY_STUDIO_DATASET` aliases are set, each pair must
+  match; inbound and outbound sync resolve the same shared configuration.
+- `GET /static/placeholder.png` serves the bundled fallback image. The
+  production build copies this asset into the Medusa server output.
 - Publish Sanity documents to sync them. A draft acknowledgment is not a
   Medusa write.
 - Sanity mutations and Medusa database changes are separate systems. Workflow

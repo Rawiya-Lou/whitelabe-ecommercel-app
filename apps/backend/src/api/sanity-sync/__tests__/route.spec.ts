@@ -46,7 +46,9 @@ describe("Sanity Webhook Ingestion Route (POST /sanity-sync)", () => {
     process.env = {
       ...originalEnv,
       SANITY_PROJECT_ID: "test-proj-id",
+      SANITY_STUDIO_PROJECT_ID: "test-proj-id",
       SANITY_DATASET: "development",
+      SANITY_STUDIO_DATASET: "development",
       SANITY_SYNC_SECRET_TOKEN: "valid-secret-token",
       NODE_ENV: "test",
     };
