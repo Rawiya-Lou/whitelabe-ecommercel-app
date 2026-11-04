@@ -237,7 +237,7 @@ describe("Sanity Webhook Ingestion Route (POST /sanity-sync)", () => {
     });
 
     describe("Idempotency", () => {
-      it("should acknowledge a repeated identical payload without rerunning workflows", async () => {
+      it("should acknowledge a repeated delivery using the event lease, not a document fingerprint", async () => {
         mockReq.body = {
           _type: "category",
           _id: "cat_idempotent",
@@ -245,9 +245,10 @@ describe("Sanity Webhook Ingestion Route (POST /sanity-sync)", () => {
           slug: { current: "idempotent" },
         };
         mockReq.headers["sanity-webhook-id"] = "hook-config-id";
-        vi.mocked(syncLock.matches)
-          .mockResolvedValueOnce(false)
-          .mockResolvedValueOnce(true);
+        vi.mocked(syncLock.acquire)
+          .mockResolvedValueOnce("lease-token")
+          .mockResolvedValueOnce("lease-token")
+          .mockResolvedValueOnce(undefined);
 
         await POST(mockReq, mockRes);
         expect(mockCategoryWorkflowRun).toHaveBeenCalledTimes(1);
@@ -255,11 +256,27 @@ describe("Sanity Webhook Ingestion Route (POST /sanity-sync)", () => {
         mockRes.statusCode = 200;
         await POST(mockReq, mockRes);
 
-        expect(mockRes.status).toHaveBeenLastCalledWith(200);
+        expect(mockRes.status).toHaveBeenLastCalledWith(202);
         expect(mockRes.json).toHaveBeenLastCalledWith(
-          expect.objectContaining({ syncStatus: "unchanged" }),
+          expect.objectContaining({ syncStatus: "duplicate" }),
         );
         expect(mockCategoryWorkflowRun).toHaveBeenCalledTimes(1);
+      });
+
+      it("does not suppress a valid update because its payload fingerprint was seen before", async () => {
+        mockReq.body = {
+          _type: "category",
+          _id: "cat_repeated_content",
+          title: "Same content, new event",
+          slug: { current: "same-content" },
+        };
+        vi.mocked(syncLock.matches).mockResolvedValue(true);
+
+        await POST(mockReq, mockRes);
+
+        expect(mockCategoryWorkflowRun).toHaveBeenCalledTimes(1);
+        expect(syncLock.matches).not.toHaveBeenCalled();
+        expect(mockRes.status).toHaveBeenCalledWith(200);
       });
 
       it("should process later revisions delivered by the same Sanity webhook", async () => {

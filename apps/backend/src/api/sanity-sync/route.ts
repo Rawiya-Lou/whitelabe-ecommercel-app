@@ -214,7 +214,6 @@ export async function POST(
 
   let eventLease: { key: string; token: string } | undefined;
   const syncLeases: Array<{ key: string; token: string }> = [];
-  const documentFingerprints: Array<{ key: string; value: string }> = [];
 
   const projectId =
     process.env.SANITY_PROJECT_ID || process.env.SANITY_STUDIO_PROJECT_ID;
@@ -373,29 +372,40 @@ export async function POST(
       rawPayload.documentType ||
       (incomingCmsProduct._type === "category" ? "category" : "product");
 
-    if (cleanId && (await syncLock.consume(`sanity-echo:${cleanId}`))) {
+    const incomingMetadata: Record<string, unknown> = isRecord(
+      incomingCmsProduct.metadata,
+    )
+      ? incomingCmsProduct.metadata
+      : {};
+    const syncOrigin =
+      getString(uncheckedBody.syncOrigin) ||
+      getString(uncheckedBody.is_sync_origin) ||
+      getString(incomingMetadata.is_sync_origin);
+    logger.info(
+      `[Sanity Sync Hook] Incoming document state: ${JSON.stringify({
+        documentId: cleanId,
+        documentType,
+        operation: resolvedRequestContextOperation,
+        revision: getString(rawPayload._rev) || null,
+        syncOrigin: syncOrigin || null,
+        correlationId: getString(uncheckedBody.correlationId) || null,
+        requestFingerprint,
+      })}`,
+    );
+
+    const echoCorrelationId = cleanId
+      ? await syncLock.consume(`sanity-echo:${cleanId}`)
+      : undefined;
+    if (echoCorrelationId) {
+      logger.info(
+        `[Sanity Sync Hook] Ignoring outbound Medusa echo for ${cleanId}; correlationId=${echoCorrelationId}, syncOrigin=${syncOrigin || "unknown"}.`,
+      );
       res.status(200).json({
         success: true,
         syncStatus: "ignored",
         message: "Acknowledged Medusa-originated Sanity mutation.",
       });
       return;
-    }
-
-    if (requestFingerprint && cleanId) {
-      const fingerprintKey = `sanity-fingerprint:${cleanId}`;
-      if (await syncLock.matches(fingerprintKey, requestFingerprint)) {
-        res.status(200).json({
-          success: true,
-          syncStatus: "unchanged",
-          message: "Webhook content matches the last synchronized state.",
-        });
-        return;
-      }
-      documentFingerprints.push({
-        key: fingerprintKey,
-        value: requestFingerprint,
-      });
     }
 
     let operation: OperationTypes = resolvedRequestContextOperation;
@@ -467,9 +477,6 @@ export async function POST(
       return;
     }
     eventLease = { key: eventKey, token: claimedEvent };
-
-    const incomingMetadata =
-      (incomingCmsProduct?.metadata as Record<string, unknown>) || {};
 
     const cmsProduct: Partial<SanityRawProductInput> = cleanId
       ? {
@@ -875,12 +882,6 @@ export async function POST(
           categoryIds: productCategories.flatMap((category) =>
             typeof category.id === "string" ? [category.id] : [],
           ),
-        });
-        documentFingerprints.push({
-          key: `sanity-fingerprint:${productId}`,
-          value: createHash("sha256")
-            .update(JSON.stringify(rawBatchItem))
-            .digest("hex"),
         });
       }
 
@@ -1671,11 +1672,6 @@ export async function POST(
       details: error instanceof Error ? error.message : error,
     });
   } finally {
-    if (res.statusCode >= 200 && res.statusCode < 300) {
-      for (const fingerprint of documentFingerprints) {
-        await syncLock.mark(fingerprint.key, fingerprint.value, 86400);
-      }
-    }
     for (const lease of syncLeases) {
       await syncLock.release(lease.key, lease.token);
     }

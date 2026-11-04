@@ -33,13 +33,6 @@ export const syncProductToSanityStep = createStep(
     const logger = container.resolve<Logger>(ContainerRegistrationKeys.LOGGER);
     const sanityService = container.resolve<SanityModuleService>(SANITY_MODULE);
 
-    if (await syncLock.isLocked(`sanity-sync:${productId}`)) {
-      logger.warn(
-        `[Sanity Product Sync] Skipping product ${productId} because its sync lease is active.`,
-      );
-      return new StepResponse({ skipped: true, reason: "sync_in_progress" });
-    }
-
     const { data: products } = await query.graph({
       entity: "product",
       fields: [
@@ -75,6 +68,14 @@ export const syncProductToSanityStep = createStep(
     const metadata = (product.metadata ?? {}) as Record<string, any>;
     const translations = (metadata.translations as Record<string, any>) || {};
     const sanityId = (metadata.sanity_id as string) || product.id;
+    const inboundLeaseKey = `sanity-sync:product-${sanityId}`;
+    if (await syncLock.isLocked(inboundLeaseKey)) {
+      logger.warn(
+        `[Sanity Product Sync] Skipping product ${productId}: inbound Sanity lease ${inboundLeaseKey} is active.`,
+      );
+      return new StepResponse({ skipped: true, reason: "sync_in_progress" });
+    }
+
     const correlationId = randomUUID();
 
     let previousDocument: unknown;
@@ -192,16 +193,65 @@ export const syncProductToSanityStep = createStep(
       ["en", "fr", "ar"].every(
         (language) => safeText(current[language]) === safeText(desired[language]),
       );
+    const localState = {
+      medusaId: product.id,
+      slug: product.handle || product.id,
+      title: titleObj,
+      description: descObj,
+      material: materialObj,
+      categories: categoryReferences(categories),
+      tags: [...tagValues].sort(),
+    };
+    const remoteSlug = isRecord(document?.slug)
+      ? safeText(document.slug.current)
+      : safeText(document?.slug);
+    const remoteState = {
+      medusaId: safeText(document?.medusaId),
+      slug: remoteSlug,
+      title: isRecord(document?.title)
+        ? Object.fromEntries(
+            ["en", "fr", "ar"].map((language) => [
+              language,
+              safeText(document.title[language]),
+            ]),
+          )
+        : {},
+      description: isRecord(document?.description)
+        ? Object.fromEntries(
+            ["en", "fr", "ar"].map((language) => [
+              language,
+              safeText(document.description[language]),
+            ]),
+          )
+        : {},
+      material: isRecord(document?.material)
+        ? Object.fromEntries(
+            ["en", "fr", "ar"].map((language) => [
+              language,
+              safeText(document.material[language]),
+            ]),
+          )
+        : {},
+      categories: categoryReferences(document?.categories),
+      tags: [...existingTagValues].sort(),
+    };
     const sameCommerceStructure =
       document !== null &&
       document?.medusaId === product.id &&
       sameLocalizedValue(document.title, titleObj) &&
       sameLocalizedValue(document.description, descObj) &&
       sameLocalizedValue(document.material, materialObj) &&
-      JSON.stringify(categoryReferences(document.categories)) ===
-        JSON.stringify(categoryReferences(categories)) &&
-      JSON.stringify([...existingTagValues].sort()) ===
-        JSON.stringify([...tagValues].sort());
+      remoteSlug === localState.slug &&
+      JSON.stringify(remoteState.categories) ===
+        JSON.stringify(localState.categories) &&
+      JSON.stringify(remoteState.tags) === JSON.stringify(localState.tags);
+    logger.info(
+      `[Sanity Product Sync] State comparison for product ${productId} / Sanity ${sanityId}: ${JSON.stringify({
+        equal: sameCommerceStructure,
+        local: localState,
+        remote: remoteState,
+      })}`,
+    );
     if (sameCommerceStructure) {
       logger.info(
         `[Sanity Product Sync] Product ${productId} is already current in Sanity; mutation skipped.`,
@@ -218,6 +268,7 @@ export const syncProductToSanityStep = createStep(
       medusaId: product.id,
       updatedBy: "medusa",
       syncOrigin: "medusa",
+      is_sync_origin: "medusa",
       correlationId,
       slug: { _type: "slug", current: product.handle || product.id },
       title: titleObj,

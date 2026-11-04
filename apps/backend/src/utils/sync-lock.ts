@@ -51,7 +51,11 @@ export class UniversalSyncLock {
       enableOfflineQueue: false,
     });
 
-    this.redisClient.on("error", () => undefined);
+    this.redisClient.on("error", (error: Error) => {
+      console.error(
+        `[Sanity Sync Lock] Redis client error: ${error.message}`,
+      );
+    });
   }
 
   async acquire(key: string, ttlSeconds = 30): Promise<string | undefined> {

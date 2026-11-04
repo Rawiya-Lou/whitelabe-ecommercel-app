@@ -81,8 +81,8 @@ workflow, it:
    or `sanity-webhook-signature` using HMAC-SHA256 over the exact raw body.
 3. Rejects unpublished `drafts.*` documents or a drafts perspective with HTTP
    202; draft content is not written to Medusa.
-4. Identifies duplicates using a request fingerprint and an event lease based
-   on document ID, operation, revision, and payload fingerprint.
+4. Identifies duplicate webhook deliveries using an event lease based on
+   document ID, operation, revision, and payload fingerprint.
 5. Takes a document-scoped lease to avoid concurrent inbound work on the same
    catalog document.
 6. Ignores a matching short-lived `sanity-echo:<documentId>` marker. This
@@ -90,9 +90,10 @@ workflow, it:
 7. Normalizes category/product operation, references, localized data, and
    image asset URLs before dispatch.
 
-The `finally` block releases leases. Successful processing stores the request
-fingerprint for a day; a retry of the same event is acknowledged instead of
-reapplying it.
+The `finally` block releases document leases. The event lease retains a
+successfully processed delivery until its TTL expires. There is no separate
+per-document fingerprint short-circuit, so a valid new delivery with repeated
+content is not rejected as unchanged.
 
 ### 2. Category ingestion
 
@@ -202,9 +203,9 @@ to Sanity. Other locale translations are retained.
 The two systems can emit events in response to each other's writes, so the
 integration uses multiple guards:
 
-- **Inbound request lease and fingerprint:** the webhook route claims event
-  delivery and document work with TTL-based locks and remembers successfully
-  processed request fingerprints.
+- **Inbound request lease and fingerprint:** the webhook route claims a
+  revision/payload-specific event lease and a document-scoped work lease. It
+  does not persist a payload-only fingerprint that can suppress later updates.
 - **Medusa-origin echo marker:** outbound Sanity mutations mark
   `sanity-echo:<sanityDocumentId>`. The next webhook for that document consumes
   the marker and returns successfully without starting an inbound workflow.
@@ -213,8 +214,10 @@ integration uses multiple guards:
   `sanity-inbound-product:<medusaProductId>`. The Medusa product subscriber
   consumes the marker and avoids echoing that event back to Sanity.
 - **Origin fields and correlation IDs:** outbound Sanity documents include
-  `updatedBy`, `syncOrigin`, and `correlationId` for diagnostics and webhook
-  projection.
+  `updatedBy`, `syncOrigin`, `is_sync_origin`, and `correlationId` for
+  diagnostics and webhook projection. The short-lived echo lease remains the
+  authoritative loop guard; a persistent origin field alone is not sufficient
+  to classify future editorial changes as echoes.
 - **Redis leases:** `src/utils/sync-lock.ts` uses Redis `SET NX EX`, renewal,
   and token-checked release in production. It uses process-local expiring
   values in development/test and fails closed if production Redis is missing
