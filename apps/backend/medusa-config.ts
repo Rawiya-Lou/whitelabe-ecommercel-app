@@ -53,18 +53,6 @@ const eventBusModuleConfig = isProd
       options: {},
     };
 
-const workflowsModuleConfig = isProd
-  ? {
-      resolve: "@medusajs/medusa/workflow-engine-redis",
-      options: {
-        redisUrl: redisUrl,
-        redisOptions: {
-          maxRetriesPerRequest: null,
-          enableReadyCheck: false,
-        }
-      }
-    }
-  : undefined;    
 
 const config = defineConfig({
   projectConfig: {
@@ -97,7 +85,6 @@ const config = defineConfig({
 
   modules: [
      eventBusModuleConfig,
-    ...(workflowsModuleConfig ? [workflowsModuleConfig] : []),
     {
       resolve: "@medusajs/medusa/file",
       options: {
