@@ -32,6 +32,13 @@ export const product = defineType({
       hidden: ({ document }) => !document?.medusaId,
       group: "general",
     }),
+      defineField({
+      name: 'is_sync_origin',
+      title: 'Sync Origin',
+      type: 'string',
+      readOnly: true,
+      hidden: true, 
+    }),
 
     defineField({
       name: "updatedBy",
