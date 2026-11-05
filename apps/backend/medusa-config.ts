@@ -27,6 +27,10 @@ const eventBusModuleConfig = isProd
         queueOptions: {
           prefix: redisNamespacePrefix,
         },
+        workerOptions: {
+          prefix: redisNamespacePrefix,
+
+        },
         redisOptions: {
           maxRetriesPerRequest: null,
           enableReadyCheck: false,

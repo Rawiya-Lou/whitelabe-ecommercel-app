@@ -20,7 +20,7 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [".next/**", "out/**", ".medusa/server/**", "dist/**"]
+      "outputs": [".next/**", "out/**", ".medusa/**", "dist/**"]
     },
     "dev": {
       "cache": false,

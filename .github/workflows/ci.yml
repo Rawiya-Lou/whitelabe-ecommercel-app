@@ -132,6 +132,10 @@ jobs:
         working-directory: ./apps/backend
         env:
           DATABASE_URL: ${{ secrets.NEON_CI_DATABASE_URL }}
+          NODE_ENV: test
+          SANITY_PROJECT_ID: "mockid12"
+          SANITY_DATASET: testdataset
+          SANITY_API_TOKEN: mock_sanity_token_1234567
           REDIS_URL: ${{ secrets.REDIS_URL }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           COOKIE_SECRET: ${{ secrets.COOKIE_SECRET }}
