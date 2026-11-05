@@ -55,7 +55,7 @@ const eventBusModuleConfig = isProd
 
 const workflowsModuleConfig = isProd
   ? {
-      resolve: "@medusajs/medusa/workflows-redis",
+      resolve: "@medusajs/medusa/workflow-engine-redis",
       options: {
         redisUrl: redisUrl,
         redisOptions: {
