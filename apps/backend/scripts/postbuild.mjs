@@ -1,5 +1,6 @@
 import { mkdir, stat, readdir, copyFile } from "fs/promises";
 import path from "path";
+import { cpSync, existsSync } from "fs";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -15,6 +16,10 @@ const placeholderDest = path.join(
   "static",
   "placeholder.png",
 );
+
+const adminBuildSrc = path.join(__dirname, "..", ".medusa", "server", "public");
+const adminBuildDest = path.join(__dirname, "..", "public");
+
 
 async function ensureDir(dir) {
   await mkdir(dir, { recursive: true });
@@ -50,6 +55,10 @@ async function copyRecursive(src, dest) {
     await copyFile(placeholderSrc, placeholderDest);
     console.log("Static placeholder image copied to the Medusa server build");
 
+     if (existsSync(adminBuildSrc)) {
+      cpSync(adminBuildSrc, adminBuildDest, { recursive: true });
+      console.log("Admin build assets synced to public/ for production runtime");
+    }
     console.log("Postbuild completed successfully");
     process.exit(0);
   } catch (err) {
