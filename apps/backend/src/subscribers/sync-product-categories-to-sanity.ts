@@ -2,12 +2,12 @@ import type { SubscriberConfig, SubscriberArgs } from "@medusajs/framework";
 import {
   syncProductToSanityWorkflow,
   deleteProductFromSanityWorkflow,
-} from "../../workflows/sanity-sync/forward-sync-workflows";
+} from "../workflows/sanity-sync/forward-sync-workflows";
 import {
   deleteCategoryFromSanityWorkflow,
   syncCategoryToSanityWorkflow,
-} from "../../workflows/sanity-sync/category-forward-workflow";
-import { syncLock } from "../../utils/sync-lock";
+} from "../workflows/sanity-sync/category-forward-workflow";
+import { syncLock } from "../utils/sync-lock";
 import type { Logger } from "@medusajs/framework/types";
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils";
 
