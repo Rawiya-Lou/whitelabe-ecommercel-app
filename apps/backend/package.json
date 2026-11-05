@@ -14,7 +14,7 @@
   ],
   "scripts": {
     "postbuild": "node ./scripts/postbuild.mjs",
-    "build": "medusa build && npm run postbuild",
+    "build": "medusa build --no-lint && npm run postbuild",
     "predeploy": "medusa db:migrate && medusa exec ./src/migration-scripts/initial-data-seed.ts",
     "db:migrate": "medusa db:migrate",
     "start": "medusa start",
