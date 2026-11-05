@@ -53,10 +53,25 @@ const eventBusModuleConfig = isProd
       options: {},
     };
 
+const workflowsModuleConfig = isProd
+  ? {
+      resolve: "@medusajs/medusa/workflows-redis",
+      options: {
+        redisUrl: redisUrl,
+        redisOptions: {
+          maxRetriesPerRequest: null,
+          enableReadyCheck: false,
+        }
+      }
+    }
+  : undefined;    
+
 const config = defineConfig({
   projectConfig: {
     databaseUrl: process.env.DATABASE_URL,
     redisUrl: redisUrl,
+     workerMode: (process.env.WORKER_MODE as "shared" | "worker" | "server") || "shared",
+
     databaseDriverOptions: {
       connection: {
         ssl: {
@@ -81,7 +96,8 @@ const config = defineConfig({
   },
 
   modules: [
-    eventBusModuleConfig,
+     eventBusModuleConfig,
+    ...(workflowsModuleConfig ? [workflowsModuleConfig] : []),
     {
       resolve: "@medusajs/medusa/file",
       options: {
