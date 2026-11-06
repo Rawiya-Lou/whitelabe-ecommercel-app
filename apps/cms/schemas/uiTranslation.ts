@@ -12,15 +12,18 @@ export const uiTranslation = defineType({
       title: "Namespace / Feature Area",
       type: "string",
       description: "Group UI strings by feature or screen.",
-      options: {
-        list: [
-          { title: "Common & Generic (Buttons, Modals, Errors)", value: "common" },
-          { title: "Navigation & Footer", value: "navigation" },
-          { title: "Cart & Checkout", value: "cart" },
-          { title: "Product Detail & Catalog", value: "product" },
-          { title: "Customer Account & Auth", value: "account" },
-        ],
-      },
+options: {
+  list: [
+    { title: "Common (Buttons, Alerts, Statuses)", value: "common" },
+    { title: "Navbar & Header", value: "navigation" },
+    { title: "Footer & Legal", value: "footer" },
+    { title: "Sections (Hero, Trending, Banners)", value: "sections" },
+    { title: "Catalog & Product Details", value: "product" },
+    { title: "Cart & Checkout Flow", value: "cart" },
+    { title: "Pages & Errors (404, Confirmation)", value: "pages" },
+    { title: "Account & Auth", value: "account" },
+  ],
+},
       validation: (Rule) => Rule.required(),
     }),
 

@@ -1,5 +1,6 @@
 import React from "react";
 import { defineType, defineField } from "sanity";
+
 const RtlInput = (props: any) =>
   React.createElement(
     "div",
@@ -15,7 +16,7 @@ export const localizedString = defineType({
     {
       name: "translations",
       title: "Additional Languages (Translations)",
-      options: { collapsible: true, collapsed: false },
+      options: { collapsible: true, collapsed: false, columns: 2 }, 
     },
   ],
   fields: [
@@ -23,14 +24,14 @@ export const localizedString = defineType({
       title: "English (Default)",
       name: "en",
       type: "string",
-      placeholder: "e.g. Solid Wood Desk",
+      placeholder: "e.g. Title in English",
     }),
     defineField({
       title: "French (Français)",
       name: "fr",
       type: "string",
       fieldset: "translations",
-      placeholder: "e.g. Bureau en bois massif",
+      placeholder: "e.g. Title en français",
     }),
     defineField({
       title: "Arabic (العربية)",
@@ -43,7 +44,6 @@ export const localizedString = defineType({
       },
     }),
   ],
-
   preview: {
     select: {
       en: "en",
@@ -99,7 +99,6 @@ export const localizedText = defineType({
       },
     }),
   ],
-
   preview: {
     select: {
       en: "en",
