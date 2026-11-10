@@ -15,10 +15,12 @@ const projectId =
   process.env.SANITY_STUDIO_PROJECT_ID ||
   process.env.SANITY_PROJECT_ID ||
   process.env.NEXT_PUBLIC_SANITY_PROJECT_ID;
+
 if (!projectId || !token) {
   console.error("Missing SANITY_PROJECT_ID or SANITY_API_TOKEN in .env.local");
   process.exit(1);
 }
+
 const client = createClient({
   projectId,
   dataset,
@@ -27,7 +29,54 @@ const client = createClient({
   useCdn: false,
 });
 
+
 const uiDocuments = [
+  // ─── SEO & METADATA (Matches metadata.ts & page.tsx) ───
+  {
+    _id: "uiTranslation-metadata",
+    _type: "uiTranslation",
+    namespace: "metadata",
+    items: [
+      {
+        key: "siteName",
+        context: "Global site brand name used in browser tabs and OpenGraph",
+        value: {
+          en: "Official Store",
+          fr: "Boutique Officielle",
+          ar: "المتجر الرسمي",
+        },
+      },
+      {
+        key: "defaultTitle",
+        context: "Primary homepage title and fallback meta title",
+        value: {
+          en: "Curated Collections & Premium Essentials",
+          fr: "Collections Exclusives & Shopping International",
+          ar: "تشكيلات حصرية واختيارات عصرية راقية",
+        },
+      },
+      {
+        key: "defaultDescription",
+        context: "Default meta description used for SEO search snippets",
+        value: {
+          en: "Explore our exclusive catalog of authentic products with fast international shipping and secure checkout.",
+          fr: "Découvrez notre sélection exclusive de produits certifiés. Livraison internationale rapide et paiement sécurisé.",
+          ar: "استكشف تشكيلتنا الحصرية من المنتجات الأصلية والمختارة بعناية، مع شحن دولي موثوق ودفع آمن ومحمي.",
+        },
+      },
+      {
+        key: "keywords",
+        context: "Meta keywords comma-separated",
+        value: {
+          en: "ecommerce, authentic, fashion, curated collection, fast shipping",
+          fr: "boutique en ligne, certifié, mode, collections exclusives, livraison rapide",
+          ar: "متجر إلكتروني، أصلي، أزياء، تشكيلات مميزة، توصيل سريع",
+        },
+      },
+    ],
+  },
+
+  // ─── NAVIGATION ───
   {
     _id: "uiTranslation-navigation",
     _type: "uiTranslation",
@@ -93,6 +142,7 @@ const uiDocuments = [
     ],
   },
 
+  // ─── FOOTER ───
   {
     _id: "uiTranslation-footer",
     _type: "uiTranslation",
@@ -179,6 +229,7 @@ const uiDocuments = [
     ],
   },
 
+  // ─── PRODUCT & CATALOG ───
   {
     _id: "uiTranslation-product",
     _type: "uiTranslation",
@@ -261,6 +312,7 @@ const uiDocuments = [
     ],
   },
 
+  // ─── CART & CHECKOUT ───
   {
     _id: "uiTranslation-cart",
     _type: "uiTranslation",
@@ -318,6 +370,7 @@ const uiDocuments = [
     ],
   },
 
+  // ─── ACCOUNT & AUTH ───
   {
     _id: "uiTranslation-account",
     _type: "uiTranslation",
@@ -351,6 +404,7 @@ const uiDocuments = [
     ],
   },
 
+  // ─── COMMON & SYSTEM ───
   {
     _id: "uiTranslation-common",
     _type: "uiTranslation",
@@ -402,14 +456,55 @@ const uiDocuments = [
   },
 ];
 
+
+const siteSettingsDoc = {
+  _id: "siteSettings",
+  _type: "siteSettings",
+  siteName: {
+    en: "Official Store",
+    fr: "Boutique Officielle",
+    ar: "المتجر الرسمي",
+  },
+  defaultTitle: {
+    en: "Curated Collections & Premium Essentials",
+    fr: "Collections Exclusives & Shopping International",
+    ar: "تشكيلات حصرية واختيارات عصرية راقية",
+  },
+  defaultDescription: {
+    en: "Explore our exclusive catalog of authentic products with fast international shipping and secure checkout.",
+    fr: "Découvrez notre sélection exclusive de produits certifiés. Livraison internationale rapide et paiement sécurisé.",
+    ar: "استكشف تشكيلتنا الحصرية من المنتجات الأصلية والمختارة بعناية، مع شحن دولي موثوق ودفع آمن ومحمي.",
+  },
+  keywords: {
+    en: "ecommerce, authentic, fashion, curated collection, fast shipping",
+    fr: "boutique en ligne, certifié, mode, collections exclusives, livraison rapide",
+    ar: "متجر إلكتروني، أصلي، أزياء، تشكيلات مميزة، توصيل سريع",
+  },
+};
+
+
 async function seed() {
-  console.log("Seeding comprehensive international translations to Sanity...");
+  console.log("Seeding international translations & site SEO settings to Sanity...");
   const tx = client.transaction();
+
   for (const doc of uiDocuments) {
-    tx.createOrReplace(doc);
+    const formattedDoc = {
+      ...doc,
+      items: doc.items.map((item) => ({
+        _key: item.key, // Uses machine key (e.g. "newsletterTitle") as Sanity's _key
+        ...item,
+      })),
+    };
+    tx.createOrReplace(formattedDoc);
   }
+
+
+
+  // Seed the siteSettings document
+  tx.createOrReplace(siteSettingsDoc);
+
   await tx.commit();
-  console.log("✓ International UI translations successfully published in Sanity!");
+  console.log("✓ International UI translations & Site SEO successfully published in Sanity!");
 }
 
 seed().catch((err) => {
@@ -417,4 +512,4 @@ seed().catch((err) => {
   process.exit(1);
 });
 
-// run npx sanity exec seed-ui.ts --with-user-token one published delete this file after seeding to avoid duplicate entries in Sanity.
+// run this command to seed the CMS with initial UI translations and site settings:npx sanity exec seed-ui.ts --with-user-token

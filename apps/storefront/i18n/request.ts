@@ -1,83 +1,98 @@
+// apps/storefront/i18n/request.ts
 import { routing } from "./routing";
-import { env } from "../app/env.mjs";
 import { hasLocale } from "next-intl";
 import { getRequestConfig } from "next-intl/server";
 import { LOCALS } from "./constants";
+import { getUiTranslations } from "@/lib/sanity/query";
 
-export type Messages = Record<string, unknown>;
+export type MessageValue = string | { [key: string]: MessageValue };
+export type Messages = Record<string, MessageValue>;
 
-interface SanityCodeField {
-  code?: string;
-  language?: string;
+interface RequestConfigParams {
+  requestLocale?: Promise<string | undefined>;
+  locale?: string;
 }
 
-interface SanityQueryResult {
-  result?: SanityCodeField;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-const SANITY_PROJECT_ID = env.NEXT_PUBLIC_SANITY_PROJECT_ID || "4vzx52ot";
-const SANITY_DATASET = env.NEXT_PUBLIC_SANITY_DATASET || "production";
-const SANITY_API_VERSION = "2026-09-06";
+export function deepMerge(
+  target: Messages = {},
+  source: Messages = {}
+): Messages {
+  const output: Messages = { ...target };
 
-// Server-side fetcher with Next.js tags for revalidation
-async function fetchSanityTranslations(locale: string): Promise<Messages> {
-  const query = encodeURIComponent(
-    `*[_type == "uiTranslation" && locale == "${locale}"][0].messages`,
-  );
-  const url = `https://${SANITY_PROJECT_ID}.apicdn.sanity.io/v${SANITY_API_VERSION}/data/query/${SANITY_DATASET}?query=${query}`;
+  if (!isRecord(source)) {
+    return output;
+  }
 
-  try {
-    const res = await fetch(url, {
-      next: { tags: [`translations_${locale}`], revalidate: 3600 }, // Cache 1 hour, purgeable via webhook
-    });
+  for (const key of Object.keys(source)) {
+    const sourceVal = source[key];
+    const targetVal = output[key];
 
-    if (!res.ok) return {};
-    const data: SanityQueryResult = await res.json();
-    const rawJsonString = data.result?.code;
-    if (!rawJsonString) {
-      console.warn(
-        `[Sanity] No translation payload string found for locale: ${locale}`,
+    if (isRecord(sourceVal)) {
+      output[key] = deepMerge(
+        isRecord(targetVal) ? (targetVal as Messages) : {},
+        sourceVal as Messages
       );
-      return {};
+    } else if (typeof sourceVal === "string" && sourceVal !== "") {
+      output[key] = sourceVal;
     }
-    return JSON.parse(rawJsonString) as Messages;
-  } catch (error) {
-    console.error(`Failed to fetch Sanity translations for ${locale}:`, error);
-    return {};
   }
+
+  return output;
 }
 
-async function getMergedMessages(rawLocale: string | undefined) {
-  let locale = rawLocale;
 
-  if (!locale || !routing.locales.includes(locale as LOCALS)) {
-    locale = routing.defaultLocale;
-  }
+export default getRequestConfig(async (context: RequestConfigParams) => {
+  const rawLocale = context.requestLocale
+    ? await context.requestLocale
+    : context.locale;
 
+  const locale: LOCALS =
+    rawLocale && hasLocale(routing.locales, rawLocale)
+      ? (rawLocale as LOCALS)
+      : routing.defaultLocale;
+
+  // Statically load local messages (Offline Fallback)
   let localMessages: Messages = {};
-
   try {
-    localMessages = (await import(`../messages/${locale}.json`)).default;
-  } catch (error) {
-    console.error(`Could not load local messages for locale: ${locale}`, error);
+    const imported = (await import(`../messages/${locale}.json`)) as {
+      default: Messages;
+    };
+    localMessages = imported.default;
+  } catch {
+    try {
+      const fallbackImported = (await import(
+        `../messages/${routing.defaultLocale}.json`
+      )) as { default: Messages };
+      localMessages = fallbackImported.default;
+    } catch {
+      localMessages = {};
+    }
   }
 
-  //  Load dynamic translations from Sanity CMS
-  const cmsMessages = await fetchSanityTranslations(locale);
+  // Live Sanity CMS translation fetch
+  let cmsMessages: Messages = {};
+  try {
+    const fetched = await getUiTranslations(locale);
+    cmsMessages = (fetched as Messages) || {};
+  } catch {
+    cmsMessages = {};
+  }
 
-  // Deep-merge Sanity strings over local defaults
   return {
     locale,
-    messages: {
-      ...localMessages,
-      ...cmsMessages,
+    messages: deepMerge(localMessages, cmsMessages),
+     onError(error) {
+      if (error.code !== "MISSING_MESSAGE") {
+        console.error(error);
+      }
+    },
+      getMessageFallback({ namespace, key }) {
+      return `${namespace ? `${namespace}.` : ""}${key}`;
     },
   };
-}
-
-export default getRequestConfig(async ({ locale }) => {
-  if (!locale || !hasLocale(routing.locales, locale)) {
-    locale = routing.defaultLocale;
-  }
-  return await getMergedMessages(locale);
 });

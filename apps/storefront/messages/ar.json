@@ -1,16 +1,137 @@
 {
-  "Common": {
-    "welcome": "مرحباً بك في متجرنا",
-    "currency": "د.ج",
-    "wilayaNotice": "التوصيل متوفر لجميع الولايات مع خدمة الدفع عند الاستلام"
+  "common": {
+    "welcome": "مرحباً بكم في متجرنا الرسمي",
+    "search": "بحث",
+    "searchPlaceholder": "ابحث عن المنتجات، المجموعات، الماركات...",
+    "save": "حفظ",
+    "cancel": "إلغاء",
+    "confirm": "تأكيد",
+    "close": "إغلاق",
+    "back": "رجوع",
+    "continue": "متابعة",
+    "viewAll": "عرض الكل",
+    "explore": "استكشف",
+    "apply": "تطبيق",
+    "remove": "إزالة",
+    "loading": "جاري التحميل...",
+    "filter": "تصفية",
+    "sort": "ترتيب",
+    "language": "اللغة",
+    "currency": "العملة"
   },
-  "Navigation": {
+  "navigation": {
+    "announcement": "شحن دولي سريع • مجاناً للطلبات التي تتجاوز {amount}",
     "home": "الرئيسية",
-    "cart": "سلة التسوق"
+    "shop": "جميع المنتجات",
+    "categories": "التصنيفات",
+    "newArrivals": "وصل حديثاً",
+    "bestSellers": "الأكثر مبيعاً",
+    "cart": "حقيبة التسوق",
+    "account": "حسابي",
+    "wishlist": "المفضلة",
+    "selectRegion": "اختر البلد والعملة"
   },
-  "HomePage": {
-    "title": "الصفحة الرئيسية للمتجر",
-    "seoTitle": "الرئيسية",
-    "seoDescription": "مرحباً بكم في متجر DTC منصة التجارة الإلكترونية."
-  }
+  "homePage": {
+    "title": "تشكيلات حصرية واختيارات عصرية راقية",
+    "seoTitle": "المتجر الرسمي | تسوق إلكتروني متكامل",
+    "seoDescription": "اكتشف تشكيلتنا الحصرية من المنتجات الأصلية والمختارة بعناية. استمتع بشحن دولي سريع، جودة مضمونة، ودفع آمن ومحمي."
+  },
+  "sections": {
+    "featuredProducts": "المنتجات المميزة",
+    "newArrivals": "وصل حديثاً",
+    "bestSellers": "الأكثر مبيعاً",
+    "trendingNow": "الرائج الآن",
+    "shopTheCollection": "تسوق المجموعة",
+    "customerReviews": "تقييمات العملاء",
+    "filterBy": "تصفية حسب",
+    "sortBy": "ترتيب حسب",
+    "priceAsc": "السعر: من الأقل إلى الأعلى",
+    "priceDesc": "السعر: من الأعلى إلى الأقل"
+  },
+  "product": {
+    "addToCart": "أضف إلى الحقيبة",
+    "buyNow": "شراء فوري",
+    "outOfStock": "نفذت الكمية",
+    "inStock": "متوفر • جاهز للشحن",
+    "preOrder": "طلب مسبق",
+    "quantity": "الكمية",
+    "selectOptions": "يرجى تحديد الخيارات المطلوبة",
+    "description": "الوصف",
+    "details": "تفاصيل المنتج",
+    "specifications": "المواصفات",
+    "sizeGuide": "دليل المقاسات",
+    "sku": "رمز المنتج",
+    "reviews": "التقييمات ({count})",
+    "share": "مشاركة",
+    "dutiesNotice": "يتم احتساب الرسوم الجمركية والضرائب بدقة عند إتمام الدفع"
+  },
+  "cart": {
+    "title": "حقيبة التسوق",
+    "emptyTitle": "حقيبة التسوق فارغة",
+    "emptyDescription": "استكشف تشكيلاتنا وأضف منتجاتك المفضلة لبدء التسوق.",
+    "startShopping": "ابدأ التسوق",
+    "subtotal": "المجموع الفرعي",
+    "shipping": "الشحن",
+    "shippingCalculated": "يُحسب عند إتمام الدفع",
+    "dutiesAndTaxes": "الرسوم والضرائب التقديرية",
+    "total": "المجموع الإجمالي",
+    "checkout": "المتابعة لإتمام الدفع",
+    "promoCode": "رمز الخصم أو قسيمة الشراء",
+    "promoPlaceholder": "أدخل الرمز",
+    "discount": "الخصم"
+  },
+  "checkout": {
+    "title": "إتمام الدفع الآمن",
+    "contactInfo": "معلومات الاتصال",
+    "shippingAddress": "عنوان التوصيل",
+    "billingAddress": "عنوان الفاتورة",
+    "paymentMethod": "طريقة الدفع",
+    "placeOrder": "تأكيد الطلب",
+    "processing": "جاري معالجة طلبك...",
+    "secureCheckout": "دفع آمن ومحمي 100% بتشفير SSL 256-Bit",
+    "termsAgreement": "بإتمام طلبك، فإنك توافق على شروط الخدمة وسياسة الخصوصية الخاصة بنا.",
+    "orderSummary": "ملخص الطلب"
+  },
+  "account": {
+    "signIn": "تسجيل الدخول",
+    "signUp": "إنشاء حساب جديد",
+    "email": "البريد الإلكتروني",
+    "password": "كلمة المرور",
+    "forgotPassword": "هل نسيت كلمة المرور؟",
+    "orders": "سجل الطلبات",
+    "orderNumber": "طلب رقم #{number}",
+    "orderDate": "تاريخ الطلب: {date}",
+    "status": "الحالة",
+    "addresses": "العناوين المحفوظة",
+    "profile": "الملف الشخصي",
+    "logout": "تسجيل الخروج"
+  },
+  "footer": {
+    "newsletterTitle": "كن على اطلاع دائم",
+    "newsletterSubtitle": "اشترك في نشرتنا البريدية لتصلك أحدث الإصدارات الحصرية، العروض الخاصة والأخبار العالمية.",
+    "emailPlaceholder": "أدخل بريدك الإلكتروني",
+    "subscribe": "اشتراك",
+    "customerService": "خدمة العملاء",
+    "contactUs": "تواصل معنا",
+    "faq": "الأسئلة الشائعة والمساعدة",
+    "shippingReturns": "الشحن وسياسة الإرجاع الدولية",
+    "termsOfService": "شروط الخدمة",
+    "privacyPolicy": "سياسة الخصوصية",
+    "allRightsReserved": "جميع الحقوق محفوظة. عمليات الشحن والتوزيع الدولي.",
+    "securePaymentBadge": "مدفوعات دولية آمنة • نقبل جميع البطاقات المعتمدة عالمياً",
+    "returnGuarantee": "ضمان استرجاع دولي سهل وميسر خلال {days} يوماً"
+  },
+  "pages": {
+    "notFoundTitle": "404 • الصفحة غير موجودة",
+    "notFoundDesc": "الصفحة التي تبحث عنها غير متوفرة حالياً أو تم نقلها إلى عنوان آخر.",
+    "backToHome": "العودة إلى المتجر",
+    "orderConfirmedTitle": "شكراً لطلبك",
+    "orderConfirmedDesc": "تم تأكيد طلبك بنجاح. تم إرسال إيصال التأكيد ورابط التتبع الدولي إلى بريدك الإلكتروني.",
+    "trackOrder": "تتبع حالة الطلب"
+  },
+  "metadata": {
+  "siteName": "المتجر الرسمي",
+  "defaultTitle": "تشكيلات حصرية واختيارات عصرية راقية",
+  "defaultDescription": "استكشف تشكيلتنا الحصرية من المنتجات الأصلية والمختارة بعناية، مع شحن دولي سريع وجودة مضمونة ودفع آمن."
+}
 }

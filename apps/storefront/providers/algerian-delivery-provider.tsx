@@ -1,16 +1,40 @@
 "use client";
-import React, { createContext, useContext, useMemo, useEffect, useState } from "react";
-import { LOCALS } from "@/i18n/constants";
 
-import { getLocalizedWilayas, LocalizedGeographyNode } from "../lib/wilayas";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useMemo,
+} from "react";
+import { LOCALS } from "@/i18n/constants";
+import {
+  getLocalizedWilayas,
+  getLocalizedCommunes,
+  LocalizedGeographyNode,
+} from "../lib/wilayas";
+import {
+  fetchWilayaRate,
+  WilayaShippingRate,
+} from "@/lib/medusa/algerian-shipping";
 
 interface AlgerianDeliveryContextType {
-  isAlgerianContext: boolean;
-  localizedWilayas: LocalizedGeographyNode[];
-  isLoading: boolean;
+  isAlgeria: boolean;
+  wilayas: LocalizedGeographyNode[];
+  communes: LocalizedGeographyNode[];
+  selectedWilaya: number | null;
+  setSelectedWilaya: (code: number | null) => void;
+  selectedCommune: number | null;
+  setSelectedCommune: (code: number | null) => void;
+  isStopDesk: boolean;
+  setIsStopDesk: (stopDesk: boolean) => void;
+  activeRate: WilayaShippingRate | null;
+  shippingPrice: number;
+  isLoadingRate: boolean;
 }
 
-const AlgerianDeliveryContext = createContext<AlgerianDeliveryContextType | null>(null);
+const AlgerianDeliveryContext =
+  createContext<AlgerianDeliveryContextType | null>(null);
 
 export function AlgerianDeliveryProvider({
   children,
@@ -21,47 +45,70 @@ export function AlgerianDeliveryProvider({
   locale: `${LOCALS}`;
   isAlgeriaRegion: boolean;
 }) {
-  const [localizedWilayas, setLocalizedWilayas] = useState<LocalizedGeographyNode[]>([]);
-  const [isLoading, setIsLoading] = useState(isAlgeriaRegion);
+  const [selectedWilaya, setSelectedWilaya] = useState<number | null>(16); // Default: 16 (Alger)
+  const [selectedCommune, setSelectedCommune] = useState<number | null>(null);
+  const [isStopDesk, setIsStopDesk] = useState<boolean>(false);
+  const [activeRate, setActiveRate] = useState<WilayaShippingRate | null>(null);
 
+  // Instant localized dropdown data (In-memory)
+  const wilayas = useMemo(() => {
+    return isAlgeriaRegion ? getLocalizedWilayas(locale) : [];
+  }, [isAlgeriaRegion, locale]);
+
+  const communes = useMemo(() => {
+    if (!isAlgeriaRegion || !selectedWilaya) return [];
+    return getLocalizedCommunes(selectedWilaya, locale);
+  }, [isAlgeriaRegion, selectedWilaya, locale]);
+
+  // Fetch rate from Medusa backend without synchronous setState in effect body
   useEffect(() => {
-    if (!isAlgeriaRegion) return;
+    if (!isAlgeriaRegion || !selectedWilaya) return;
 
     let isMounted = true;
-    
-    async function fetchGeoData() {
-      try {
-        setIsLoading(true);
-        // Safely invoke our server-isolated geoalgeria payload call wrapper
-        const data = await getLocalizedWilayas(locale);
-        
-        if (isMounted) {
-          setLocalizedWilayas(data);
-        }
-      } catch (err) {
-        console.error("Failed compiling geoalgeria package metrics:", err);
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    }
 
-    fetchGeoData();
+    fetchWilayaRate(selectedWilaya).then((rate) => {
+      if (isMounted) {
+        setActiveRate(rate);
+      }
+    });
 
     return () => {
       isMounted = false;
     };
-  }, [locale, isAlgeriaRegion]);
+  }, [selectedWilaya, isAlgeriaRegion]);
 
-  const contextValue = useMemo(() => ({
-    isAlgerianContext: isAlgeriaRegion,
-    localizedWilayas,
-    isLoading
-  }), [isAlgeriaRegion, localizedWilayas, isLoading]);
+  // Derived loading state (No setState needed!)
+  const isLoadingRate =
+    isAlgeriaRegion &&
+    selectedWilaya !== null &&
+    activeRate?.wilayaCode !== selectedWilaya;
+
+  // Current price based on Stop-Desk vs Home Delivery
+  const shippingPrice = useMemo(() => {
+    if (!activeRate) return 0;
+    return isStopDesk ? activeRate.deskPrice : activeRate.homePrice;
+  }, [activeRate, isStopDesk]);
 
   return (
-    <AlgerianDeliveryContext.Provider value={contextValue}>
+    <AlgerianDeliveryContext.Provider
+      value={{
+        isAlgeria: isAlgeriaRegion,
+        wilayas,
+        communes,
+        selectedWilaya,
+        setSelectedWilaya: (code) => {
+          setSelectedWilaya(code);
+          setSelectedCommune(null);
+        },
+        selectedCommune,
+        setSelectedCommune,
+        isStopDesk,
+        setIsStopDesk,
+        activeRate,
+        shippingPrice,
+        isLoadingRate,
+      }}
+    >
       {children}
     </AlgerianDeliveryContext.Provider>
   );
@@ -70,7 +117,9 @@ export function AlgerianDeliveryProvider({
 export function useAlgerianDelivery() {
   const context = useContext(AlgerianDeliveryContext);
   if (!context) {
-    throw new Error("useAlgerianDelivery must be instantiated under a valid AlgerianDeliveryProvider context node.");
+    throw new Error(
+      "useAlgerianDelivery must be used within an AlgerianDeliveryProvider",
+    );
   }
   return context;
 }

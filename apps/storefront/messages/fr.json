@@ -1,16 +1,137 @@
 {
-  "Common": {
-    "welcome": "Bienvenue dans notre boutique",
-    "currency": "DZD",
-    "wilayaNotice": "Livraison disponible dans toutes les wilayas avec paiement à la livraison"
+  "common": {
+    "welcome": "Welcome to our official online store",
+    "search": "Search",
+    "searchPlaceholder": "Search products, collections, brands...",
+    "save": "Save",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "close": "Close",
+    "back": "Back",
+    "continue": "Continue",
+    "viewAll": "View All",
+    "explore": "Explore",
+    "apply": "Apply",
+    "remove": "Remove",
+    "loading": "Loading...",
+    "filter": "Filter",
+    "sort": "Sort",
+    "language": "Language",
+    "currency": "Currency"
   },
-  "Navigation": {
-    "home": "Accueil",
-    "cart": "Panier"
+  "navigation": {
+    "announcement": "Worldwide Express Shipping • Complimentary on orders over {amount}",
+    "home": "Home",
+    "shop": "Shop All",
+    "categories": "Categories",
+    "newArrivals": "New Arrivals",
+    "bestSellers": "Best Sellers",
+    "cart": "Shopping Bag",
+    "account": "Account",
+    "wishlist": "Wishlist",
+    "selectRegion": "Select Country & Currency"
   },
-  "HomePage": {
-    "title": "Storefront Homepage",
-    "seoTitle": "Home",
-    "seoDescription": "Welcome to DTC Storefront white-label e-commerce platform."
-  }
+  "homePage": {
+    "title": "Curated Collections & Modern Essentials",
+    "seoTitle": "Official Store | Premium Online Shopping",
+    "seoDescription": "Discover our curated collection of premium products. Enjoy fast worldwide shipping, guaranteed authentic quality, and secure checkout."
+  },
+  "sections": {
+    "featuredProducts": "Featured Products",
+    "newArrivals": "New Arrivals",
+    "bestSellers": "Best Sellers",
+    "trendingNow": "Trending Now",
+    "shopTheCollection": "Shop The Collection",
+    "customerReviews": "Customer Reviews",
+    "filterBy": "Filter by",
+    "sortBy": "Sort by",
+    "priceAsc": "Price: Low to High",
+    "priceDesc": "Price: High to Low"
+  },
+  "product": {
+    "addToCart": "Add to Bag",
+    "buyNow": "Buy Now",
+    "outOfStock": "Sold Out",
+    "inStock": "In Stock • Ready to dispatch",
+    "preOrder": "Pre-Order",
+    "quantity": "Quantity",
+    "selectOptions": "Please select options",
+    "description": "Description",
+    "details": "Product Details",
+    "specifications": "Specifications",
+    "sizeGuide": "Size Guide",
+    "sku": "SKU",
+    "reviews": "Reviews ({count})",
+    "share": "Share",
+    "dutiesNotice": "Duties and local taxes calculated at checkout"
+  },
+  "cart": {
+    "title": "Shopping Bag",
+    "emptyTitle": "Your bag is empty",
+    "emptyDescription": "Explore our collection and add your favorite pieces.",
+    "startShopping": "Start Shopping",
+    "subtotal": "Subtotal",
+    "shipping": "Shipping",
+    "shippingCalculated": "Calculated at checkout",
+    "dutiesAndTaxes": "Estimated Duties & Taxes",
+    "total": "Total",
+    "checkout": "Proceed to Checkout",
+    "promoCode": "Promo or Gift Code",
+    "promoPlaceholder": "Enter code",
+    "discount": "Discount"
+  },
+  "checkout": {
+    "title": "Secure Checkout",
+    "contactInfo": "Contact Information",
+    "shippingAddress": "Shipping Address",
+    "billingAddress": "Billing Address",
+    "paymentMethod": "Payment Method",
+    "placeOrder": "Place Order",
+    "processing": "Processing your order...",
+    "secureCheckout": "100% Encrypted & Secure 256-Bit SSL Checkout",
+    "termsAgreement": "By placing your order, you agree to our Terms of Service and Privacy Policy.",
+    "orderSummary": "Order Summary"
+  },
+  "account": {
+    "signIn": "Sign In",
+    "signUp": "Create Account",
+    "email": "Email Address",
+    "password": "Password",
+    "forgotPassword": "Forgot your password?",
+    "orders": "Order History",
+    "orderNumber": "Order #{number}",
+    "orderDate": "Placed on {date}",
+    "status": "Status",
+    "addresses": "Saved Addresses",
+    "profile": "Profile Details",
+    "logout": "Sign Out"
+  },
+  "footer": {
+    "newsletterTitle": "Stay in Touch",
+    "newsletterSubtitle": "Subscribe to receive news on exclusive product drops, seasonal sales, and global events.",
+    "emailPlaceholder": "Enter your email address",
+    "subscribe": "Subscribe",
+    "customerService": "Customer Service",
+    "contactUs": "Contact Us",
+    "faq": "Help & FAQs",
+    "shippingReturns": "Shipping & Global Returns",
+    "termsOfService": "Terms of Service",
+    "privacyPolicy": "Privacy Policy",
+    "allRightsReserved": "All rights reserved. International distribution & fulfillment.",
+    "securePaymentBadge": "Encrypted Global Payments • All Major Cards Accepted",
+    "returnGuarantee": "{days}-Day Global Return Guarantee"
+  },
+  "pages": {
+    "notFoundTitle": "404 • Page Not Found",
+    "notFoundDesc": "The page you are looking for doesn't exist or has been relocated.",
+    "backToHome": "Return to Storefront",
+    "orderConfirmedTitle": "Thank You for Your Order",
+    "orderConfirmedDesc": "Your order has been confirmed. A confirmation receipt with international tracking details has been sent to your email.",
+    "trackOrder": "Track Order"
+  },
+  "metadata": {
+  "siteName": "Boutique Officielle",
+  "defaultTitle": "Collections Exclusives & Shopping International",
+  "defaultDescription": "Découvrez notre collection exclusive de produits certifiés. Livraison internationale rapide, qualité garantie et paiement sécurisé."
+}
 }

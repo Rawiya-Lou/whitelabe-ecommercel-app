@@ -1,42 +1,46 @@
-'use client';
-import React, { createContext, useContext } from "react";
+"use client";
 
-import {
-  type MedusaRegion,
-} from "@/lib/medusa/regions";
+import React, { createContext, useContext } from "react";
+import { type MedusaRegion } from "@/lib/medusa/regions";
 import { LOCALS } from "@/i18n/constants";
 
 export interface StoreContextType {
   region: MedusaRegion;
+  regions: MedusaRegion[];
   locale: `${LOCALS}`;
   currencyCode: string;
+  isAlgeria: boolean;
 }
 
-const StoreContext = createContext<StoreContextType | null>(null);
+const MedusaStoreContext = createContext<StoreContextType | null>(null);
 
-// Enterprise-grade context layer parsing Edge Geo-IP mappings directly into layouts.
-
-export async function MedusaStoreClient({
+/**
+ * Client context wrapper. 
+ * MUST BE SYNCHRONOUS (No 'async' keyword).
+ * (Synchronous Client Component): Consumes that initial data as standard React props to supply the context
+ */
+export function MedusaStoreClient({
   children,
   value,
 }: {
   children: React.ReactNode;
- value: StoreContextType
+  value: StoreContextType;
 }) {
- 
   return (
-    <StoreContext.Provider value={value}>
+    <MedusaStoreContext.Provider value={value}>
       {children}
-    </StoreContext.Provider>
+    </MedusaStoreContext.Provider>
   );
 }
 
-// Client hook for dynamic UI rendering (e.g., Cart drawer recalculations)
-export function useStoreContext() {
-  const context = useContext(StoreContext);
+/**
+ * Consumer Hook for Storefront UI (Cart drawer, currency switchers, checkout)
+ */
+export function useMedusaStoreContext(): StoreContextType {
+  const context = useContext(MedusaStoreContext);
   if (!context) {
     throw new Error(
-      "useStoreContext must be executed within a valid MedusaStoreProvider node tree.",
+      "useMedusaStoreContext must be used within a MedusaStoreProvider"
     );
   }
   return context;

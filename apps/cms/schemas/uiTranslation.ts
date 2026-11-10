@@ -1,6 +1,19 @@
 import { defineType, defineField } from "sanity";
 import { TranslateIcon } from "@sanity/icons/Translate";
 
+// 1. Strict Contract for Array Items (No "any")
+export interface UIItem {
+  _key?: string;
+  key?: string;
+  context?: string;
+  value?: {
+    en?: string;
+    fr?: string;
+    ar?: string;
+    [key: string]: string | undefined;
+  };
+}
+
 export const uiTranslation = defineType({
   name: "uiTranslation",
   title: "UI & Button Translations",
@@ -11,19 +24,19 @@ export const uiTranslation = defineType({
       name: "namespace",
       title: "Namespace / Feature Area",
       type: "string",
-      description: "Group UI strings by feature or screen.",
-options: {
-  list: [
-    { title: "Common (Buttons, Alerts, Statuses)", value: "common" },
-    { title: "Navbar & Header", value: "navigation" },
-    { title: "Footer & Legal", value: "footer" },
-    { title: "Sections (Hero, Trending, Banners)", value: "sections" },
-    { title: "Catalog & Product Details", value: "product" },
-    { title: "Cart & Checkout Flow", value: "cart" },
-    { title: "Pages & Errors (404, Confirmation)", value: "pages" },
-    { title: "Account & Auth", value: "account" },
-  ],
-},
+      options: {
+        list: [
+          { title: "Common (Buttons, Alerts, Statuses)", value: "common" },
+          { title: "Navbar & Header", value: "navigation" },
+          { title: "Footer & Legal", value: "footer" },
+          { title: "Sections (Hero, Trending, Banners)", value: "sections" },
+          { title: "Catalog & Product Details", value: "product" },
+          { title: "Cart & Checkout Flow", value: "cart" },
+          { title: "SEO & Social Sharing Meta", value: "metadata" },
+          { title: "Pages & Errors (404, Confirmation)", value: "pages" },
+          { title: "Account & Auth", value: "account" },
+        ],
+      },
       validation: (Rule) => Rule.required(),
     }),
 
@@ -31,6 +44,25 @@ options: {
       name: "items",
       title: "UI Copy Items",
       type: "array",
+      // 2. Strict Custom Validator without "any"
+      validation: (Rule) =>
+        Rule.custom((items: UIItem[] | undefined) => {
+          if (!items || items.length === 0) return true;
+
+          const keys = items
+            .map((item) => item.key?.trim().toLowerCase())
+            .filter((k): k is string => Boolean(k));
+
+          const duplicates = keys.filter(
+            (k, index) => keys.indexOf(k) !== index
+          );
+
+          if (duplicates.length > 0) {
+            return `Duplicate key detected: "${duplicates[0]}". All machine keys must be unique.`;
+          }
+
+          return true;
+        }),
       of: [
         {
           type: "object",
@@ -41,18 +73,16 @@ options: {
               name: "key",
               title: "Code Key",
               type: "string",
-              description: "The machine identifier used in code (e.g. 'addToCart', 'subtotal').",
               validation: (Rule) =>
                 Rule.required().regex(/^[a-zA-Z0-9_.-]+$/, {
                   name: "validKey",
                   invert: false,
-                }).error("Keys can only contain letters, numbers, dots, dashes, and underscores."),
+                }),
             }),
             defineField({
               name: "context",
-              title: "Translator Context / Notes",
+              title: "Translator Context",
               type: "string",
-              description: "Explain to translators where and how this text is used.",
             }),
             defineField({
               name: "value",
@@ -61,35 +91,8 @@ options: {
               validation: (Rule) => Rule.required(),
             }),
           ],
-          preview: {
-            select: {
-              title: "key",
-              subtitle: "value.en",
-              context: "context",
-            },
-            prepare({ title, subtitle, context }) {
-              return {
-                title: title || "Untitled Key",
-                subtitle: subtitle ? `EN: "${subtitle}"` : context || "No English preview",
-              };
-            },
-          },
         },
       ],
     }),
   ],
-
-  preview: {
-    select: {
-      namespace: "namespace",
-      items: "items",
-    },
-    prepare({ namespace, items }) {
-      const count = items?.length || 0;
-      return {
-        title: namespace ? `${namespace.toUpperCase()} Namespace` : "Unassigned Namespace",
-        subtitle: `${count} translation key(s) registered`,
-      };
-    },
-  },
 });
