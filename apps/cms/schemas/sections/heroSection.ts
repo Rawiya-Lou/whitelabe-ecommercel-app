@@ -1,11 +1,10 @@
-// apps/cms/schemas/heroSection.ts
 import { defineType, defineField } from "sanity";
 import { BlockElementIcon } from "@sanity/icons/BlockElement";
 
 export const heroSection = defineType({
   name: "heroSection",
   title: "Homepage Hero Banner",
-  type: "document",
+  type: "object",
   icon: BlockElementIcon,
   description: "The hero section is the first visual element on your homepage, often featuring a large banner image, headline, and call-to-action button.",
   groups: [
@@ -43,6 +42,13 @@ export const heroSection = defineType({
       type: "localizedString",
       group: "content",
       description: "e.g., 'Shop The Collection' or 'Discover Now'",
+    }),
+     defineField({
+      name: "ctaLink",
+      title: "CTA Target",
+      type: "link",
+      group: "content",
+      description: "The destination URL or internal page for the primary call-to-action button.",
     }),
 
     defineField({

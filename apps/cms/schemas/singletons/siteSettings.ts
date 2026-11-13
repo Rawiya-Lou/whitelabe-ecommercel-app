@@ -1,6 +1,10 @@
 import { defineType, defineField } from "sanity";
 import { CogIcon } from "@sanity/icons/Cog";
 
+const isDocumentLocked = ({ document }: { document?: any }) => {
+  // Default to locked if undefined, or check the boolean flag
+  return document?.isLocked ?? true;
+};
 export const siteSettings = defineType({
   name: "siteSettings",
   title: "Brand & Site Settings",
@@ -14,12 +18,20 @@ export const siteSettings = defineType({
     { name: "contact", title: "Contact & Support" },
   ],
   fields: [
+      defineField({
+      name: "isLocked",
+      title: "Edit Protection Lock",
+      type: "boolean",
+      description: "Keep ON to prevent accidental edits. Turn OFF when you intentionally need to make changes.",
+      initialValue: true,
+    }),
     // BRAND IDENTITY
     defineField({
       name: "storeName",
       title: "Store / Brand Name",
       type: "string",
       group: "branding",
+      readOnly: isDocumentLocked,
       description: "e.g., 'Maison Luxe' or 'Official DTC Store'",
       validation: (Rule) => Rule.required(),
     }),
@@ -31,6 +43,7 @@ export const siteSettings = defineType({
       type: "image",
       group: "branding",
       description: "Main logo rendered in navbar and invoice headers (SVG, PNG, or WebP).",
+      readOnly: isDocumentLocked,
       options: { hotspot: true },
       fields: [
         defineField({
@@ -50,6 +63,7 @@ export const siteSettings = defineType({
       type: "image",
       group: "branding",
       description: "Optional: Used when header sits on top of dark Hero banners.",
+      readOnly: isDocumentLocked,
       options: { hotspot: true },
     }),
 
@@ -58,6 +72,7 @@ export const siteSettings = defineType({
       title: "Browser Favicon",
       type: "image",
       group: "branding",
+      readOnly: isDocumentLocked,
       description: "Upload a square 32x32 or 512x512 icon for browser tabs and mobile bookmarks.",
     }),
 

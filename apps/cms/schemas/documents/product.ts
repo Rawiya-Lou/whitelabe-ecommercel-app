@@ -112,7 +112,7 @@ export const product = defineType({
         {
           type: "reference",
           to: [{ type: "category" }],
-          weak: true,
+          weak: false,
           options: {
             disableNew: false,
           },
@@ -213,12 +213,20 @@ export const product = defineType({
           ],
           fields: [
             defineField({
-              name: "medusa_variant_id",
+              name: "medusaId",
               title: "Medusa Variant ID",
               type: "string",
               readOnly: true,
               hidden: ({ parent }) =>
                 !parent?.medusa_variant_id && !parent?.variantId,
+              group: "identity",
+            }),
+               defineField({
+              name: "medusa_variant_id",
+              title: "Medusa Variant ID (Legacy)",
+              type: "string",
+              readOnly: true,
+              hidden: true,
               group: "identity",
             }),
             defineField({

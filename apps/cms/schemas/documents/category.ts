@@ -134,7 +134,7 @@ export const category = defineType({
         {
           type: "reference",
           to: [{ type: "category" }],
-          weak: true,
+          weak: false,
           options: {
             // Guard: Prevents editors from referencing this document as its own child
             filter: ({ document }) => {
