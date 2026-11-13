@@ -12,30 +12,67 @@ import {
 } from "@medusajs/framework/utils";
 import type { Logger } from "@medusajs/framework/types";
 import { assertCategoryCanBeDeleted } from "../utils/product-category-delete-guard";
+import { syncProductToSanityWorkflow } from "../workflows/sanity-sync/forward-sync-workflows";
 
 export default defineMiddlewares({
   routes: [
     {
       matcher: "/store/wilaya-calculator",
       method: "POST",
-      middlewares: [
-        // Automatically checks incoming req.body against Zod. Returns a clean 400 bad request if invalid.
-        validateAndTransformBody(CalculateShippingSchema),
-      ],
+      middlewares: [validateAndTransformBody(CalculateShippingSchema)],
     },
-     {
-      // Match your exact custom sync hook route
-      matcher: "/sanity-sync",
+    {
+      matcher: "/admin/sanity-sync",
       method: "POST",
       bodyParser: { preserveRawBody: true },
-      // Automatically attach an internal token placeholder so live Sanity calls bypass the storefront auth guard
+    },
+ 
+    {
+      matcher: "/admin/product-categories/:id/products",
+      method: "POST",
       middlewares: [
-        (req, res, next) => {
-          if (!req.headers["x-publishable-api-key"]) {
-            req.headers["x-publishable-api-key"] =
-              "pk_ea79ea0e54d16e2c6faf4b4bfb9049d3ad3b9a10fd7cc866d566f518f972999a";
-          }
-          next();
+        async (
+          req: MedusaRequest,
+          res: MedusaResponse,
+          next: MedusaNextFunction,
+        ) => {
+          // Listen to when Medusa finishes saving the product-category links
+          res.on("finish", async () => {
+            if (res.statusCode >= 200 && res.statusCode < 300) {
+              const logger = req.scope.resolve(
+                ContainerRegistrationKeys.LOGGER,
+              ) as Logger;
+
+              const body = req.body as { add?: string[]; remove?: string[] };
+              const affectedProductIds = [
+                ...(body?.add || []),
+                ...(body?.remove || []),
+              ];
+
+              if (affectedProductIds.length > 0) {
+                logger.info(
+                  `[Category Membership Hook] Detected ${affectedProductIds.length} product(s) modified in category ${req.params.id}. Triggering Sanity sync...`,
+                );
+
+                for (const productId of affectedProductIds) {
+                  try {
+                    await syncProductToSanityWorkflow(req.scope).run({
+                      input: { productId },
+                    });
+                    logger.info(
+                      `[Category Membership Hook] Successfully updated Sanity categories for product: ${productId}`,
+                    );
+                  } catch (error) {
+                    logger.error(
+                      `[Category Membership Hook] Failed to sync product ${productId} to Sanity: ${error}`,
+                    );
+                  }
+                }
+              }
+            }
+          });
+
+          return next();
         },
       ],
     },
@@ -82,7 +119,7 @@ export default defineMiddlewares({
               throw error;
             }
             logger.error(
-              `[Category Delete Guard] Could not verify product assignments for category [${categoryId}].`
+              `[Category Delete Guard] Could not verify product assignments for category [${categoryId}].`,
             );
             throw new MedusaError(
               MedusaError.Types.UNEXPECTED_STATE,

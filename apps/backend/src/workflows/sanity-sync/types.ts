@@ -28,8 +28,8 @@ export interface SanityCategoryPayload extends Partial<HttpTypes.AdminProductCat
 }
 
 export interface SanityImagePayload extends Partial<HttpTypes.AdminProductImage> {
-  url: string;
-  _key: string;
+  url?: string;
+  _key?: string;
   _type?: string;
   id?: string;
   asset?: {

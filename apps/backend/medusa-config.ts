@@ -3,6 +3,7 @@ import { getBackendPublicUrl } from "./src/utils/backend-url";
 import { getSanityConfig } from "./src/modules/sanity-sync/config";
 
 loadEnv(process.env.NODE_ENV || "development", process.cwd());
+const storefrontUrl = process.env.STOREFRONT_URL ||  "http://localhost:3000";
 // If running locally, prefix with "dev_". If live, prefix with "prod_"
 const isProd = process.env.NODE_ENV === "production";
 const redisNamespacePrefix = isProd ? "prod_" : "dev_";
@@ -132,8 +133,8 @@ const config = defineConfig({
             id: "chargily",
             options: {
               secretKey: process.env.CHARGILY_SECRET_KEY,
-              successUrl: `${process.env.STORE_CORS}/checkout/confirmed`,
-              failureUrl: `${process.env.STORE_CORS}/checkout/failed`,
+              successUrl: `${storefrontUrl}/checkout/confirmed`,
+              failureUrl: `${storefrontUrl}/checkout/failed`,
               isTestMode: process.env.CHARGILY_IS_TEST_MODE
                 ? process.env.CHARGILY_IS_TEST_MODE === "true"
                 : true,

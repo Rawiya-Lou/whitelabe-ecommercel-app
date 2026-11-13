@@ -1,4 +1,7 @@
 import type { SubscriberConfig, SubscriberArgs } from "@medusajs/framework";
+import { ContainerRegistrationKeys } from "@medusajs/framework/utils";
+import type { Logger } from "@medusajs/framework/types";
+
 import {
   syncProductToSanityWorkflow,
   deleteProductFromSanityWorkflow,
@@ -8,91 +11,103 @@ import {
   syncCategoryToSanityWorkflow,
 } from "../workflows/sanity-sync/category-forward-workflow";
 import { syncLock } from "../utils/sync-lock";
-import type { Logger } from "@medusajs/framework/types";
-import { ContainerRegistrationKeys } from "@medusajs/framework/utils";
 
 interface EventPayload {
   id?: string;
   product_id?: string;
   productId?: string;
+  product_ids?: string[];
   category_id?: string;
   product_category_id?: string;
+  category_ids?: string[];
 }
 
 export default async function productSanitySyncSubscriber({
   event: { name: eventName, data },
   container,
 }: SubscriberArgs<EventPayload>): Promise<void> {
+  const logger = container.resolve<Logger>(ContainerRegistrationKeys.LOGGER);
+
   const isCategoryEvent =
     eventName === "product-category.created" ||
     eventName === "product-category.updated" ||
     eventName === "product-category.deleted";
-  const isCategoryMembershipEvent =
-    eventName === "product-category.attached" ||
-    eventName === "product-category.detached";
-  const targetId = isCategoryEvent
-    ? data?.category_id || data?.product_category_id || data?.id
-    : isCategoryMembershipEvent
-      ? data?.product_id || data?.productId || data?.id
-      : data?.product_id || data?.id;
-  const logger = container.resolve<Logger>(ContainerRegistrationKeys.LOGGER);
-  if (!targetId) {
-    logger.warn(
-      `[Sanity Sync] Ignoring ${eventName} event without a resolvable entity ID.`,
-    );
-    return;
+
+  const categoryId =
+    data?.category_id ||
+    data?.product_category_id ||
+    (isCategoryEvent ? data?.id : undefined);
+
+  const productIds: string[] = [];
+  if (Array.isArray(data?.product_ids)) {
+    productIds.push(...data.product_ids);
+  } else if (data?.product_id || data?.productId) {
+    productIds.push(data.product_id || data.productId!);
+  } else if (!isCategoryEvent && data?.id) {
+    productIds.push(data.id);
   }
 
-  logger.info(
-    `[Sanity Sync] Received ${eventName} event for ${targetId}; starting outbound synchronization.`,
-  );
-
-  if (
-    eventName.startsWith("product.") &&
-    (await syncLock.consume(`sanity-inbound-product:${targetId}`))
-  ) {
-    logger.info(
-      `[Sanity Sync] Skipping inbound-originated ${eventName} event for ${targetId}.`,
-    );
-    return;
-  }
-
-  try {
-    if (eventName === "product-category.deleted") {
-      await deleteCategoryFromSanityWorkflow(container).run({
-        input: { categoryId: targetId },
-      });
-    } else if (
-      eventName === "product-category.created" ||
-      eventName === "product-category.updated"
-    ) {
-      await syncCategoryToSanityWorkflow(container).run({
-        input: { categoryId: targetId },
-      });
-    } else if (isCategoryMembershipEvent) {
-      await syncProductToSanityWorkflow(container).run({
-        input: { productId: targetId },
-      });
-    } else if (eventName === "product.deleted") {
-      await deleteProductFromSanityWorkflow(container).run({
-        input: { productId: targetId },
-      });
-    } else {
-      await syncProductToSanityWorkflow(container).run({
-        input: { productId: targetId },
-      });
+  if (isCategoryEvent && categoryId) {
+    logger.info(`[Sanity Sync] Processing ${eventName} for category ${categoryId}`);
+    try {
+      if (eventName === "product-category.deleted") {
+        await deleteCategoryFromSanityWorkflow(container).run({
+          input: { categoryId },
+        });
+      } else {
+        await syncCategoryToSanityWorkflow(container).run({
+          input: { categoryId },
+        });
+      }
+      logger.info(`[Sanity Sync] Completed ${eventName} for category ${categoryId}`);
+    } catch (error) {
+      logger.error(`[Sanity Sync] Category sync failed for ${categoryId}: ${error}`);
+      throw error;
     }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logger.error(
-      `[Sanity Sync] ${eventName} synchronization failed for ${targetId}: ${message}`,
-    );
-    throw error;
+    return;
   }
 
-  logger.info(
-    `[Sanity Sync] Completed ${eventName} outbound synchronization for ${targetId}.`,
-  );
+  if (productIds.length > 0) {
+    for (const targetId of productIds) {
+      if (await syncLock.consume(`sanity-inbound-product:${targetId}`)) {
+        logger.info(
+          `[Sanity Sync] Skipping inbound-originated ${eventName} event for ${targetId}.`,
+        );
+        continue;
+      }
+
+      logger.info(
+        `[Sanity Sync] Triggering forward product sync for ${targetId} due to ${eventName}.`,
+      );
+
+      try {
+        if (eventName === "product.deleted") {
+          await deleteProductFromSanityWorkflow(container).run({
+            input: { productId: targetId },
+          });
+        } else {
+          await syncProductToSanityWorkflow(container).run({
+            input: { productId: targetId },
+          });
+        }
+        logger.info(`[Sanity Sync] Completed sync for product ${targetId}`);
+      } catch (error) {
+        logger.error(`[Sanity Sync] Product sync failed for ${targetId}: ${error}`);
+        throw error;
+      }
+    }
+    return;
+  }
+
+  if (categoryId) {
+    try {
+      await syncCategoryToSanityWorkflow(container).run({
+        input: { categoryId },
+      });
+    } catch (error) {
+      logger.error(`[Sanity Sync] Fallback category sync failed for ${categoryId}: ${error}`);
+    }
+  }
 }
 
 export const config: SubscriberConfig = {
@@ -100,10 +115,11 @@ export const config: SubscriberConfig = {
     "product.created",
     "product.updated",
     "product.deleted",
-    "product-category.attached",
-    "product-category.detached",
     "product-category.created",
     "product-category.updated",
     "product-category.deleted",
+    "product-category.attached",
+    "product-category.detached",
+    "product-category.products.batch",
   ],
 };
