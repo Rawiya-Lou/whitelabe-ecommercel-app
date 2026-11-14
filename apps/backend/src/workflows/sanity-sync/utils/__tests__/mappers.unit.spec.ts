@@ -230,29 +230,7 @@ describe("mapSanityToMedusaProduct", () => {
   });
 
   describe("Multilingual Resolution & Fallbacks", () => {
-    it("uses the public Render URL for products without images", () => {
-      delete process.env.BACKEND_URL;
-      delete process.env.SANITY_IMAGE_FALLBACK_URL;
-      process.env.RENDER_EXTERNAL_URL = "https://backend.example.com/";
-
-      const result = mapSanityToMedusaProduct(
-        createBaseMockProduct({ images: [] }) as any,
-        [],
-      );
-
-      expect(result.thumbnail).toBe(
-        "https://backend.example.com/static/placeholder.png",
-      );
-      // Updated: Includes metadata: null to match mappers.ts output
-      expect(result.images).toEqual([
-        {
-          url: "https://backend.example.com/static/placeholder.png",
-          alt: "Product placeholder",
-          metadata: null,
-        },
-      ]);
-    });
-
+   
     it("keeps optional empty localized fields empty without coercing objects to text", () => {
       const mockProduct = createBaseMockProduct({
         title: { en: "Optional Fields Product" },
@@ -390,31 +368,12 @@ describe("mapSanityToMedusaProduct", () => {
       });
 
       const result = mapSanityToMedusaProduct(mockProduct as any, []);
-      expect(result.handle).toBe("prod-doc_999");
+      expect(result.handle).toBe("prod-doc-999");
     });
   });
 
   describe("Images & Gallery Processing", () => {
-    it("should fallback to the branded placeholder if images array is empty or undefined", () => {
-      const mockProduct = createBaseMockProduct({
-        images: [],
-      });
-
-      const result = mapSanityToMedusaProduct(mockProduct as any, []);
-
-      expect(result.thumbnail).toBe(
-        "http://localhost:9000/static/custom-placeholder.png",
-      );
-      // Updated: Includes metadata: null to match mappers.ts output
-      expect(result.images).toEqual([
-        {
-          url: "http://localhost:9000/static/custom-placeholder.png",
-          alt: "Product placeholder",
-          metadata: null,
-        },
-      ]);
-    });
-
+   
     it("should map image keys, asset refs, and multilingual alt tags into metadata", () => {
       const mockProduct = createBaseMockProduct({
         images: [

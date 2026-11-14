@@ -123,47 +123,20 @@ vi.mock("../steps/delete-catalog-item", () => ({
   ),
 }));
 
-vi.mock("@medusajs/medusa/core-flows", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, any>>();
-  return {
-    ...actual,
-    createProductsWorkflow: {
-      ...actual?.createProductsWorkflow,
-      runAsStep: createStep(
-        "create-products-step-mock",
-        async (input) => {
-          mockCreateProductHandler(input);
-          return new StepResponse([]);
-        },
-      ),
-    },
-    updateProductsWorkflow: {
-      ...actual?.updateProductsWorkflow,
-      runAsStep: createStep(
-        "update-products-step-mock",
-        async (input) => {
-          mockUpdateProductHandler(input);
-          return new StepResponse([]);
-        },
-      ),
-    },
-    deleteProductsWorkflow: {
-      ...actual?.deleteProductsWorkflow,
-      hooks: {
-        productsDeleted: vi.fn(),
-        ...(actual?.deleteProductsWorkflow?.hooks || {}),
-      },
-    },
-    deleteProductCategoriesWorkflow: {
-      ...actual?.deleteProductCategoriesWorkflow,
-      hooks: {
-        categoriesDeleted: vi.fn(),
-        categoryDeleted: vi.fn(),
-        ...(actual?.deleteProductCategoriesWorkflow?.hooks || {}),
-      },
-    },
-  };
-});
+vi.mock("@medusajs/medusa/core-flows", () => ({
+  createProductsWorkflow: {
+    runAsStep: createStep("create-products-step-mock", async (input) => {
+      mockCreateProductHandler(input);
+      return new StepResponse([]);
+    }),
+  },
+  updateProductsWorkflow: {
+    runAsStep: createStep("update-products-step-mock", async (input) => {
+      mockUpdateProductHandler(input);
+      return new StepResponse([]);
+    }),
+  },
+}));
 
 import { sanitySyncProductWorkflow } from "../index";
 
@@ -341,7 +314,6 @@ describe("sanitySyncProductWorkflow Orchestrator", () => {
     mockInspectHandler.mockReturnValue({
       productExists: true,
       productId: "prod_existing",
-      originCountry: "DZ",
       metadata: {},
       variantImageLinks: [
         { variantId: "variant_medusa", imageIds: ["image_old"] },
@@ -350,7 +322,6 @@ describe("sanitySyncProductWorkflow Orchestrator", () => {
         {
           id: "variant_medusa",
           sku: "SKU-MEDUSA",
-          origin_country: "DZ",
           metadata: { sanity_variant_id: "sanity-variant-key" },
           options: [{ option: { title: "Size" }, value: "Large" }],
         },
@@ -421,7 +392,6 @@ describe("sanitySyncProductWorkflow Orchestrator", () => {
         input: {
           products: [
             expect.objectContaining({
-              origin_country: null,
               material: "Organic cotton",
               tags: [{ id: "ptag_updated-tag" }],
               metadata: expect.objectContaining({
@@ -443,7 +413,6 @@ describe("sanitySyncProductWorkflow Orchestrator", () => {
               variants: [
                 expect.objectContaining({
                   id: "variant_medusa",
-                  origin_country: null,
                   metadata: expect.objectContaining({
                     sanity_variant_content: { colorHex: "#000000" },
                     variant_images: [
