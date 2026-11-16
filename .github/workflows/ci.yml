@@ -367,4 +367,4 @@ jobs:
           cache: "npm"
 
       - name: Audit Production Dependencies (High/Critical Fails Build)
-        run: npm audit --audit-level=high --omit=dev
+        run: npx audit-ci --config ./audit-ci.jsonc

@@ -1,0 +1,23 @@
+{
+  "high": true,
+  "skip-dev": true,
+  "package-manager": "npm",
+  "allowlist": [
+    "GHSA-xcpc-8h2w-3j85",
+    "GHSA-vwc7-r8mq-g2x9",
+    "GHSA-7q85-xj36-vmfc",
+    "GHSA-rcw4-f5rp-g42v",
+    "GHSA-j5f4-cc29-5x44",
+    "GHSA-p634-w6r4-rjp2",
+    "GHSA-c6fg-446q-cg94",
+    "GHSA-8238-w5pm-2374",
+    "GHSA-mh29-5h37-fv8m",
+    "GHSA-h67p-54hq-rp68",
+    "GHSA-52cp-r559-cp3m",
+    "GHSA-5p4m-2wfm-xmqj",
+    "GHSA-2883-xcg3-v3hh",
+    "GHSA-v3rj-xjv7-4jmq",
+    "GHSA-7w5x-hrqm-74c2",
+    "GHSA-r4xh-jqrq-34v2"
+  ]
+}

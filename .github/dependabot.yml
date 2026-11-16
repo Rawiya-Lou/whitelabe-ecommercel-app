@@ -1,18 +1,116 @@
 version: 2
 updates:
+  # 1. Monorepo npm Workspaces (Root + Backend + CMS + Storefront)
   - package-ecosystem: "npm"
-    directory: "/"
+    directories:
+      - "/"
+      - "/apps/backend"
+      - "/apps/cms"
+      - "/apps/storefront"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+      day: "monday"
+      time: "08:00"
+      timezone: "Africa/Algiers"
     target-branch: "develop"
-    # Group related dependencies to reduce PR noise
+    open-pull-requests-limit: 8
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "npm"
+
+    # Supply-chain defense: wait 7 days before opening non-security version PRs
+    # (Critical security updates bypass cooldown automatically)
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+
     groups:
+      medusajs-stack:
+        applies-to: version-updates
+        patterns:
+          - "@medusajs/*"
+        update-types:
+          - "minor"
+          - "patch"
+
       nextjs-stack:
+        applies-to: version-updates
         patterns:
           - "next*"
           - "react*"
           - "@types/react*"
-      medusajs-stack:
+        update-types:
+          - "minor"
+          - "patch"
+
+      sanity-stack:
+        applies-to: version-updates
         patterns:
-          - "@medusajs/*"
+          - "sanity"
+          - "@sanity/*"
+          - "next-sanity"
+          - "sanity-plugin-*"
+        update-types:
+          - "minor"
+          - "patch"
+
+      payments-and-validation:
+        applies-to: version-updates
+        patterns:
+          - "stripe"
+          - "@stripe/*"
+          - "@chargily/*"
+          - "zod"
+          - "ioredis"
+          - "@upstash/*"
+        update-types:
+          - "minor"
+          - "patch"
+
+      dev-tooling:
+        applies-to: version-updates
+        dependency-type: "development"
+        patterns:
+          - "turbo"
+          - "vitest"
+          - "@vitest/*"
+          - "eslint*"
+          - "@eslint/*"
+          - "typescript"
+          - "@types/*"
+        update-types:
+          - "minor"
+          - "patch"
+
+    # Prevent Medusa v2 Admin (React 18) from getting broken by React 19 major bumps
+    # while allowing Next.js 16 storefront minor/patch updates cleanly
+    ignore:
+      - dependency-name: "react"
+        versions: [">=19.0.0"]
+      - dependency-name: "react-dom"
+        versions: [">=19.0.0"]
+
+  # 2. GitHub Actions Workflows (.github/workflows/ci.yml & cd.yml)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+      timezone: "Africa/Algiers"
+    target-branch: "develop"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "ci(deps)"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns:
+          - "*"
