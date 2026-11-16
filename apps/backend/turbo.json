@@ -1,0 +1,38 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", ".env*", "!.env.example", "!.env.template"],
+      "outputs": [".medusa/**", "public/admin/**"],
+      "env": [
+        "MEDUSA_ADMIN_DASHBOARD_DISABLED",
+        "MEDUSA_BACKEND_URL",
+        "MEDUSA_ADMIN_PATH",
+        "VITE_*"
+      ],
+      "passThroughEnv": ["SKIP_ENV_VALIDATION"]
+    },
+    "predeploy": {
+      "cache": false,
+      "inputs": ["$TURBO_DEFAULT$", ".env*", "!.env.example"],
+      "passThroughEnv": [
+        "DATABASE_URL",
+        "REDIS_URL",
+        "STRIPE_API_KEY",
+        "STRIPE_WEBHOOK_SECRET",
+        "CHARGILY_SECRET_KEY",
+        "CHARGILY_IS_TEST_MODE",
+        "JWT_SECRET",
+        "COOKIE_SECRET",
+        "ACTIVE_SHIPPING_PROVIDER",
+        "STORE_WAREHOUSE_COUNTRY",
+        "STORE_NAME"
+      ]
+    },
+    "test": {
+      "env": ["STRIPE_*", "CHARGILY_*", "SANITY_*"]
+    }
+  }
+}

@@ -1,71 +1,60 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "ui": "tui",
   "globalEnv": [
-    "NODE_ENV",
-    "DATABASE_URL",
-    "REDIS_URL",
-    "JWT_SECRET",
-    "COOKIE_SECRET",
-    "AUTH_MFA_ENCRYPTION_KEY",
-    "SANITY_SYNC_SECRET_TOKEN",
-    "SANITY_API_READ_TOKEN",
-    "NEXT_PUBLIC_SANITY_PROJECT_ID",
-    "NEXT_PUBLIC_SANITY_DATASET",
-    "SANITY_DATASET",
-    "SANITY_STUDIO_DATASET",
-    "SANITY_STUDIO_PROJECT_ID",
-    "SANITY_PROJECT_ID",
-    "SANITY_API_TOKEN"
+    "NODE_ENV"
   ],
+  "globalPassThroughEnv": ["CI", "SKIP_ENV_VALIDATION"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [".next/**", "out/**", ".medusa/**", "dist/**"]
+      "inputs": ["$TURBO_DEFAULT$", ".env*", "!.env.example"],
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
     },
     "dev": {
       "cache": false,
       "persistent": true
     },
     "start": {
-      "dependsOn": ["^build"]
-    },
-
-    "typecheck": {
-      "cache": true
-    },
-    "lint": {
-      "outputs": []
-    },
-    "test": {
-      "outputs": []
-    },
-    "seed": {
-      "outputs": []
-    },
-    "predeploy":{
       "dependsOn": ["^build"],
       "cache": false
-      
-
     },
-
-    "db:migrate": {
+    "typecheck": {
+      "dependsOn": ["^typecheck"],
+      "inputs": ["$TURBO_DEFAULT$"]
+    },
+    "lint": {
+      "dependsOn": ["^build"]
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", ".env.test*"]
+    },
+    "test:unit": {
+      "outputs": []
+    },
+    "test:integration": {
       "cache": false
     },
-    "test:unit": { "cache": true },
-    "test:integration": { 
-      "cache": false
-    },
-    "test:proxy": { 
+    "test:proxy": {
       "cache": false
     },
     "test:sync:e2e": {
       "cache": false
     },
-    
     "ci:sync:e2e": {
-        "cache": false
+      "cache": false
+    },
+    "db:migrate": {
+      "cache": false
+    },
+    "seed": {
+      "cache": false
+    },
+    "predeploy": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "interactive": true
     }
-    
   }
 }

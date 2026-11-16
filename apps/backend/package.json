@@ -15,8 +15,10 @@
   "scripts": {
     "postbuild": "node ./scripts/postbuild.mjs",
     "build": "medusa build --no-lint && npm run postbuild",
-    "predeploy": "medusa db:migrate && medusa exec ./src/migration-scripts/initial-data-seed.ts",
+    "predeploy": "medusa db:migrate --execute-all-links --execute-safe-search && medusa exec ./src/migration-scripts/initial-data-seed.ts",
     "db:migrate": "medusa db:migrate",
+    "db:migrate:ci": "medusa db:migrate --execute-all-links --execute-safe-search",
+    "db:migrate:prod": "medusa db:migrate --execute-safe-links --execute-safe-search",
     "start": "medusa start",
     "dev": "medusa develop",
     "lint": "medusa lint",
@@ -30,8 +32,8 @@
     "medusa:preview": "npm run start",
     "test:sync:e2e": "cross-env TEST_TYPE=e2e vitest --config ./vitest.config.mts",
     "ci:sync:e2e": "start-server-and-test medusa:preview http://127.0.0.1:9000/health test:sync:e2e",
-    "test:sync:deployed": "npx cross-env BACKEND_URL=https://whitelabe-ecommercel-app.onrender.com vitest run integration-tests/sanity-sync-prod.spec.ts",
-    "test:sync:outbound:deployed": "npx cross-env NODE_ENV=production BACKEND_URL=https://whitelabe-ecommercel-app.onrender.com RUN_MEDUSA_TO_SANITY_PROD_TEST=true vitest run integration-tests/sanity-sync-outbound-prod.spec.ts"
+    "test:sync:deployed": "npx cross-env vitest run integration-tests/sanity-sync-prod.spec.ts",
+    "test:sync:outbound:deployed": "npx cross-env NODE_ENV=production RUN_MEDUSA_TO_SANITY_PROD_TEST=true vitest run integration-tests/sanity-sync-outbound-prod.spec.ts"
   },
   "dependencies": {
     "@chargily/chargily-pay": "^2.1.0",
@@ -49,7 +51,6 @@
     "cross-env": "^10.1.0",
     "geoalgeria": "^2.0.2",
     "ioredis": "^5.11.1",
-    "next": "16.4.6",
     "react-i18next": "13.5.0",
     "react-router-dom": "7.18.2",
     "uuid": "^14.0.2",

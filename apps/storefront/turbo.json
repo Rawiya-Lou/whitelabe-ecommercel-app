@@ -1,0 +1,23 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", ".env*", "!.env.example"],
+      "outputs": [".next/**", "!.next/cache/**", "out/**"],
+      "env": [
+        "NEXT_PUBLIC_*",
+        "MEDUSA_BACKEND_URL",
+        "SANITY_API_READ_TOKEN",
+        "SANITY_API_PROJECT_ID",
+        "SANITY_API_DATASET",
+        "SANITY_API_VERSION"
+      ],
+       "passThroughEnv": [
+        "NEXT_TELEMETRY_DISABLED",
+        "SKIP_ENV_VALIDATION"
+      ]
+    }
+  }
+}

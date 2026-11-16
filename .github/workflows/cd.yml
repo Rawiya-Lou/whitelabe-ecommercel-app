@@ -1,96 +1,157 @@
 name: CD & Production Deployment
 
 on:
-  push:
-    branches: [main] # Only runs when PRs are merged to main
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
+  # Only deploy automatically after CI & Quality Control SUCCEEDS on main
+  workflow_run:
+    workflows: ["CI & Quality Control"]
+    types: [completed]
+    branches: [main]
+  # Allow manual re-deployments from GitHub Actions UI
+  workflow_dispatch:
+    inputs:
+      deploy_cms:
+        description: "Deploy Sanity Studio (CMS)"
+        type: boolean
+        default: true
+      deploy_backend:
+        description: "Deploy Medusa Server & Worker (Render)"
+        type: boolean
+        default: true
+      deploy_storefront:
+        description: "Deploy Next.js Storefront (Vercel)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
 
 concurrency:
   group: production-deployment
   cancel-in-progress: false
 
-env:
-  CI: true
-  SKIP_ENV_VALIDATION: "true"
-
 jobs:
+  gate:
+    name: Verify CI Passed
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+    outputs:
+      deploy_cms: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_cms || 'true' }}
+      deploy_backend: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_backend || 'true' }}
+      deploy_storefront: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_storefront || 'true' }}
+    steps:
+      - run: echo "CI gate passed for commit ${{ github.event.workflow_run.head_sha || github.sha }}"
+
   deploy-cms-vercel:
-    name: Trigger Vercel CMS Deploy
+    name: Deploy CMS (Sanity Studio on Vercel)
+    needs: gate
+    if: ${{ needs.gate.outputs.deploy_cms == 'true' }}
+    environment: production
     runs-on: ubuntu-latest
     steps:
-      - name: Call Vercel CMS Deploy Hook
+      - name: Trigger Vercel CMS Deploy Hook
         env:
           VERCEL_CMS_HOOK: ${{ secrets.VERCEL_CMS_DEPLOY_HOOK_URL }}
         run: |
           if [ -z "$VERCEL_CMS_HOOK" ]; then
-            echo "Error: VERCEL_CMS_DEPLOY_HOOK_URL secret is not set inside GitHub Repository Secrets."
+            echo "Error: VERCEL_CMS_DEPLOY_HOOK_URL secret is not set."
             exit 1
           fi
-          echo "Triggering Vercel Sanity Studio CMS deployment..."
-          curl -X POST -f "$VERCEL_CMS_HOOK"
-          echo "Vercel Sanity Studio deployment triggered successfully."
- 
-  #  Trigger Render to pull, use build-backend.js, and host
+          curl --fail --silent --show-error --max-time 15 -X POST "$VERCEL_CMS_HOOK"
+          echo "Vercel Sanity Studio deployment triggered."
+
   deploy-backend-render:
-    name: Trigger Render Backend Deploy
+    name: Deploy Backend (Medusa Server + Worker on Render)
+    needs: gate
+    if: ${{ needs.gate.outputs.deploy_backend == 'true' }}
+    environment: production
     runs-on: ubuntu-latest
     steps:
-      - name: Call Render Deploy Hook
+      - name: Trigger Render Server & Worker Deploy Hooks
         env:
-          RENDER_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          RENDER_SERVER_HOOK: ${{ secrets.RENDER_SERVER_DEPLOY_HOOK_URL }}
+          RENDER_WORKER_HOOK: ${{ secrets.RENDER_WORKER_DEPLOY_HOOK_URL }}
         run: |
-          if [ -z "$RENDER_HOOK" ]; then
-            echo "Error: RENDER_DEPLOY_HOOK_URL secret is not set"
+          if [ -z "$RENDER_SERVER_HOOK" ] || [ -z "$RENDER_WORKER_HOOK" ]; then
+            echo "Error: RENDER_SERVER_DEPLOY_HOOK_URL and RENDER_WORKER_DEPLOY_HOOK_URL must both be set."
             exit 1
           fi
-          curl -X POST -f "$RENDER_HOOK"
+          curl --fail --silent --show-error --max-time 15 -X POST "$RENDER_SERVER_HOOK"
+          curl --fail --silent --show-error --max-time 15 -X POST "$RENDER_WORKER_HOOK"
+          echo "Triggered both Render Medusa Server and Worker."
 
-      - name: Wait for Render Backend to be Live & Healthy
+      - name: Wait for Render Medusa Server Health Check
         env:
           MEDUSA_BACKEND_URL: ${{ secrets.MEDUSA_BACKEND_URL }}
         run: |
-          echo "Waiting for backend to finish deploying on Render..."
+          if [ -z "$MEDUSA_BACKEND_URL" ]; then
+            echo "Error: MEDUSA_BACKEND_URL secret is not set."
+            exit 1
+          fi
+
           TIMEOUT=900
           INTERVAL=20
           ELAPSED=0
-
           BASE_URL=$(echo "${MEDUSA_BACKEND_URL}" | sed 's:/*$::')
           HEALTH_URL="${BASE_URL}/health"
 
-          echo "Target Health check URL: ${HEALTH_URL}"
-          echo "Giving Render 30 seconds to initialize..."
+          echo "Waiting for ${HEALTH_URL}..."
           sleep 30
 
-          until [ "$(curl -s -o /dev/null -w "%{http_code}" "${HEALTH_URL}")" -eq 200 ]; do
-            if [ $ELAPSED -ge $TIMEOUT ]; then
-              echo "Timed out waiting for backend to become healthy after ${ELAPSED}s."
+          until [ "$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${HEALTH_URL}")" -eq 200 ]; do
+            if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
+              echo "Timed out waiting for Medusa Backend after ${ELAPSED}s."
               exit 1
             fi
-            
-            echo "Backend container updating. Retrying in ${INTERVAL}s... (${ELAPSED}/${TIMEOUT}s elapsed)"
+            echo "Backend updating... retrying in ${INTERVAL}s (${ELAPSED}/${TIMEOUT}s)"
             sleep $INTERVAL
             ELAPSED=$((ELAPSED + INTERVAL))
           done
 
-          echo "Success: Medusa Backend is live and healthy!"
+          echo "Medusa Backend is live and healthy!"
 
-  # 3. Trigger Vercel for Next.js storefront once backend is confirmed up
   deploy-storefront-vercel:
-    name: Trigger Vercel Storefront Deploy
-    needs: deploy-backend-render
+    name: Deploy Storefront (Next.js on Vercel)
+    needs: [gate, deploy-backend-render]
+    if: ${{ always() && needs.gate.outputs.deploy_storefront == 'true' && (needs.deploy-backend-render.result == 'success' || needs.deploy-backend-render.result == 'skipped') }}
+    environment: production
     runs-on: ubuntu-latest
     steps:
-      - name: Call Vercel Deploy Hook
+      - name: Trigger Vercel Storefront Deploy Hook
         env:
-          VERCEL_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK_URL}}
+          VERCEL_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
         run: |
-          VERCEL_HOOK="${{ secrets.VERCEL_DEPLOY_HOOK_URL }}"
           if [ -z "$VERCEL_HOOK" ]; then
-           echo "Error: VERCEL_DEPLOY_HOOK_URL secret is not set"
-           exit 1
+            echo "Error: VERCEL_DEPLOY_HOOK_URL secret is not set."
+            exit 1
           fi
-          echo "Triggering Vercel deployment..."
-          curl -X POST -f "$VERCEL_HOOK"
-          echo "Vercel deployment triggered successfully"
+          curl --fail --silent --show-error --max-time 15 -X POST "$VERCEL_HOOK"
+          echo "Vercel Storefront deployment triggered."
+
+      - name: Verify Storefront Health Endpoint
+        env:
+          STOREFRONT_URL: ${{ secrets.STOREFRONT_URL }}
+        run: |
+          if [ -z "$STOREFRONT_URL" ]; then
+            echo "STOREFRONT_URL not set; skipping post-deploy storefront health probe."
+            exit 0
+          fi
+
+          TIMEOUT=480
+          INTERVAL=20
+          ELAPSED=0
+          BASE_URL=$(echo "${STOREFRONT_URL}" | sed 's:/*$::')
+          HEALTH_URL="${BASE_URL}/api/health"
+
+          sleep 30
+          until [ "$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${HEALTH_URL}")" -eq 200 ]; do
+            if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
+              echo "Warning: Storefront health probe timed out at ${HEALTH_URL}."
+              exit 1
+            fi
+            sleep $INTERVAL
+            ELAPSED=$((ELAPSED + INTERVAL))
+          done
+
+          echo "Storefront is live and healthy!"

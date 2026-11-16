@@ -1,0 +1,106 @@
+# yaml-language-server: $schema=https://render.com/schema/render.yaml.json
+# Render Blueprint for White-Label Medusa v2 Backend (Turborepo Monorepo)
+
+envVarGroups:
+  - name: medusa-shared-env
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MEDUSA_BACKEND_URL
+        sync: false # e.g. https://api.clientdomain.com
+      - key: STOREFRONT_URL
+        sync: false # e.g. https://clientdomain.com
+      - key: STORE_CORS
+        sync: false # e.g. https://clientdomain.com,https://www.clientdomain.com
+      - key: ADMIN_CORS
+        sync: false # e.g. https://api.clientdomain.com
+      - key: AUTH_CORS
+        sync: false # e.g. https://clientdomain.com,https://api.clientdomain.com
+      - key: DATABASE_URL
+        sync: false # Neon direct connection URL (?sslmode=require)
+      - key: JWT_SECRET
+        generateValue: true # Render auto-generates a unique 256-bit secret per client
+      - key: COOKIE_SECRET
+        generateValue: true
+      - key: SANITY_PROJECT_ID
+        sync: false
+      - key: SANITY_DATASET
+        value: production
+      - key: SANITY_API_TOKEN
+        sync: false
+      - key: STRIPE_API_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: CHARGILY_SECRET_KEY
+        sync: false
+      - key: CHARGILY_IS_TEST_MODE
+        value: "false"
+
+services:
+  # 1. Dedicated Redis / Valkey for Medusa Event Bus, Workflows & Sync Locks
+  - type: keyvalue
+    name: medusa-redis
+    region: frankfurt
+    plan: starter # Use starter+ in production so persistence & memory are reliable
+    maxmemoryPolicy: noeviction
+    ipAllowList: [] # Private internal access only (server + worker)
+
+  # 2. Public HTTP API + Medusa Admin (/app)
+  - type: web
+    name: medusa-server
+    runtime: node
+    region: frankfurt
+    plan: starter
+    # Keep rootDir at repo root so Turborepo has access to root package-lock.json & turbo.json
+    buildFilter:
+      paths:
+        - apps/backend/**
+        - package.json
+        - package-lock.json
+        - turbo.json
+    buildCommand: npm ci && npx turbo run build --filter=@dtc/backend
+    preDeployCommand: cd apps/backend && npm run db:migrate:prod
+    startCommand: cd apps/backend && npm run start
+    healthCheckPath: /health
+    autoDeployTrigger: "off" # Controlled by GitHub Actions cd.yml deploy hooks after CI passes
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - fromGroup: medusa-shared-env
+      - key: WORKER_MODE
+        value: server
+      - key: MEDUSA_ADMIN_DASHBOARD_DISABLED
+        value: "false"
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: medusa-redis
+          property: connectionString
+
+  # 3. Background Worker (Sanity Sync Subscribers, Chargily Cron, Emails/OTP)
+  - type: worker
+    name: medusa-worker
+    runtime: node
+    region: frankfurt
+    plan: starter
+    buildFilter:
+      paths:
+        - apps/backend/**
+        - package.json
+        - package-lock.json
+        - turbo.json
+    buildCommand: npm ci && npx turbo run build --filter=@dtc/backend
+    startCommand: cd apps/backend && npm run start
+    autoDeployTrigger: "off" # Triggered alongside medusa-server by cd.yml
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - fromGroup: medusa-shared-env
+      - key: WORKER_MODE
+        value: worker
+      - key: MEDUSA_ADMIN_DASHBOARD_DISABLED
+        value: "true"
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: medusa-redis
+          property: connectionString

@@ -19,7 +19,7 @@ export const env = createEnv({
       .default("development"),
 
     // Medusa Backend (Hosted on Render)
-    MEDUSA_BACKEND_URL: z.url().default("http://localhost:9000"),
+    MEDUSA_BACKEND_URL: z.url(),
 
     // Sanity CMS Read Token (For draft previews or private dataset fetches)
     SANITY_API_READ_TOKEN: z.string().min(1).optional(),
@@ -39,19 +39,18 @@ export const env = createEnv({
    */
   client: {
     // Medusa Client Connection
-    NEXT_PUBLIC_MEDUSA_BACKEND_URL: z.url().default("http://localhost:9000"),
+    NEXT_PUBLIC_MEDUSA_BACKEND_URL: z.url(),
     NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: z.string().min(1),
 
     // Sanity Visual & Content Configuration
-    NEXT_PUBLIC_SANITY_PROJECT_ID: z.string().min(1).default("4vzx52ot"),
+    NEXT_PUBLIC_SANITY_PROJECT_ID: z.string().min(1),
     NEXT_PUBLIC_SANITY_DATASET: z.string().min(1).default("production"),
+    NEXT_PUBLIC_SANITY_API_VERSION: z.string().optional() ,
 
     // CDN & Asset Storage
     NEXT_PUBLIC_STORAGE_BUCKET_HOSTNAME: z.string().optional(),
-
-    // Client-side Payment Identifiers
-    NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string().min(1).optional(),
-    NEXT_PUBLIC_CHARGILY_PUBLIC_KEY: z.string().min(1).optional(),
+    NEXT_PUBLIC_SITE_URL: z.url(),
+    REVALIDATION_SECRET: z.string().min(1).optional(),
   },
 
   /**
@@ -65,12 +64,10 @@ export const env = createEnv({
       process.env.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY,
     NEXT_PUBLIC_SANITY_PROJECT_ID: process.env.NEXT_PUBLIC_SANITY_PROJECT_ID,
     NEXT_PUBLIC_SANITY_DATASET: process.env.NEXT_PUBLIC_SANITY_DATASET,
+    NEXT_PUBLIC_SANITY_API_VERSION: process.env.NEXT_PUBLIC_SANITY_API_VERSION,
     NEXT_PUBLIC_STORAGE_BUCKET_HOSTNAME:
       process.env.NEXT_PUBLIC_STORAGE_BUCKET_HOSTNAME,
-    NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:
-      process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
-    NEXT_PUBLIC_CHARGILY_PUBLIC_KEY:
-      process.env.NEXT_PUBLIC_CHARGILY_PUBLIC_KEY,
+    NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
   },
 
   /**
