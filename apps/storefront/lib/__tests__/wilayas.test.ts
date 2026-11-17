@@ -1,75 +1,107 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { getLocalizedWilayas, getLocalizedCommunes } from "../wilayas";
+import {
+  getLocalizedWilayas,
+  getLocalizedCommunes,
+  resolveUiDeliveryPrice,
+  type StoreWilayaRate,
+} from "../wilayas";
 import { LOCALS } from "@/i18n/constants";
-import fs from "fs";
 
-// Type-Safe Mocking of native Node.js filesystem modules
-vi.mock("fs", () => ({
-  default: {
-    readFileSync: vi.fn(),
+vi.mock("@/app/env.mjs", () => ({
+  env: {
+    NEXT_PUBLIC_MEDUSA_BACKEND_URL: "http://localhost:9000",
+    NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: "pk_test",
   },
 }));
 
-describe("Type-Safe Geography Compilation Layer (wilayas.ts)", () => {
+vi.mock("geoalgeria", () => ({
+  default: {
+    wilayas: [
+      { code: 16, name_fr: "Alger", name_ar: "الجزائر" },
+      { code: 59, name_fr: "Aflou", name_ar: "أفلو" },
+    ],
+    getCommunesByWilaya: vi.fn((code: number) => {
+      if (code === 16) {
+        return [
+          { code: "1601", name_fr: "Alger Centre", name_ar: "الجزائر الوسطى" },
+          { code: "1602", name_fr: "Zéralda", name_ar: "زرالدة" },
+        ];
+      }
+      return [];
+    }),
+  },
+}));
+
+describe("Algerian Wilayas & Commune Pricing Layer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("should parse and map raw JSON buffers into structural Arabic taxonomy models cleanly", async () => {
-    const mockWilayaPayload = [
-      { code: "16", name: "Algiers", name_ar: "الجزائر", name_fr: "Alger" },
-    ];
+  const backendRates: StoreWilayaRate[] = [
+    {
+      wilaya_code: 16,
+      wilaya_name_en: "Algiers",
+      wilaya_name_fr: "Alger",
+      wilaya_name_ar: "الجزائر",
+      home_price: 500,
+      desk_price: 300,
+      overrides: [
+        {
+          commune_name_fr: "Zeralda", // Tests diacritic-insensitive match against "Zéralda"
+          commune_name_ar: "زرالدة",
+          commune_name_en: "Zeralda",
+          home_delivery_price: 800,
+          stop_desk_price: 450,
+          is_active: true,
+        },
+      ],
+    },
+  ];
 
-    // Simulate direct file string returns matching our strict interface schemas
-    vi.mocked(fs.readFileSync).mockReturnValue(
-      JSON.stringify(mockWilayaPayload),
-    );
-
-    const result = await getLocalizedWilayas(LOCALS.AR);
-
-    expect(result).toHaveLength(1);
-    expect(result[0]).toEqual({
-      code: 16,
-      name: "الجزائر",
-    });
+  it("localizes backend Wilaya rates in AR, FR, and EN", () => {
+    expect(getLocalizedWilayas(LOCALS.AR, backendRates)[0].name).toBe("الجزائر");
+    expect(getLocalizedWilayas(LOCALS.FR, backendRates)[0].name).toBe("Alger");
+    expect(getLocalizedWilayas(LOCALS.EN, backendRates)[0].name).toBe("Algiers");
   });
 
-  it("should process structural communes filtering strictly by parent regional identifiers", async () => {
-    const mockCommunePayload = [
-      {
-        code: "1601",
-        wilaya_code: "16",
-        name: "Sidi M'Hamed",
-        name_ar: "سيدي امحمد",
-        name_fr: "Sidi M'Hamed",
-      },
-      {
-        code: "3101",
-        wilaya_code: "31",
-        name: "Oran",
-        name_ar: "وهران",
-        name_fr: "Oran",
-      },
-    ];
+  it("merges CommuneOverride prices (diacritic-safe) and hides inactive communes", () => {
+    const [wilaya] = getLocalizedWilayas(LOCALS.FR, backendRates);
+    const communes = getLocalizedCommunes(16, LOCALS.FR, wilaya);
 
-    vi.mocked(fs.readFileSync).mockReturnValue(
-      JSON.stringify(mockCommunePayload),
-    );
+    const algerCentre = communes.find((c) => c.name_fr === "Alger Centre");
+    const zeralda = communes.find((c) => c.name_fr === "Zéralda");
 
-    // Request communes strictly matching Wilaya code 16 (Algiers)
-    const result = await getLocalizedCommunes(16, LOCALS.FR);
+    expect(algerCentre?.home_price).toBe(500);
+    expect(zeralda?.home_price).toBe(800);
+    expect(zeralda?.desk_price).toBe(450);
 
-    expect(result).toHaveLength(1);
-    expect(result[0].name).toBe("Sidi M'Hamed");
+    expect(
+      resolveUiDeliveryPrice({ wilayaRate: wilaya, commune: zeralda, isStopDesk: false })
+    ).toBe(800);
+    expect(
+      resolveUiDeliveryPrice({ wilayaRate: wilaya, commune: zeralda, isStopDesk: true })
+    ).toBe(450);
   });
 
-  it("should execute graceful array fallback handling when file systems encounter lookup rejections", async () => {
-    vi.mocked(fs.readFileSync).mockImplementation(() => {
-      throw new Error("File not found on system paths.");
-    });
+  it("excludes communes marked is_active: false in overrides", () => {
+    const [wilaya] = getLocalizedWilayas(LOCALS.FR, [
+      {
+        ...backendRates[0],
+        overrides: [
+          {
+            commune_name_fr: "Zéralda",
+            commune_name_en: "Zéralda",
+            commune_name_ar: "زرالدة",
+            home_delivery_price: 800,
+            stop_desk_price: 450,
+            is_active: false,
+          },
+        ],
+      },
+    ]);
 
-    const result = await getLocalizedWilayas(LOCALS.EN);
-
-    expect(result).toEqual([]); // Assert context array remains clean without throwing crashes
+    const communes = getLocalizedCommunes(16, LOCALS.FR, wilaya);
+    expect(communes).toHaveLength(1);
+    expect(communes[0].name_fr).toBe("Alger Centre");
   });
 });
