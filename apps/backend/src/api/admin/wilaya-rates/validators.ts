@@ -4,6 +4,7 @@ export const adminCommuneOverrideSchema = z.object({
   id: z.string().optional(), // Provided if updating an existing override
   commune_name_fr: z.string().min(1),
   commune_name_ar: z.string().min(1),
+  commune_name_en: z.string().min(1),
   home_delivery_price: z.number().int().nonnegative(), // Converted to bigNumber by Medusa
   stop_desk_price: z.number().int().nonnegative(),    // Converted to bigNumber by Medusa
   is_active: z.boolean().default(true),
