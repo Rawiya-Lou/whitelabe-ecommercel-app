@@ -12,7 +12,7 @@ import { generateMetadata } from "../[locale]/metadata";
 vi.mock("next-intl/server", () => ({
   getTranslations: vi.fn().mockImplementation(({ locale, namespace }) => {
     // If namespace isn't "Metadata", simulate a failure to trigger the code's fallback logic
-    if (namespace !== "Metadata") {
+    if (namespace !== "metadata") {
       throw new Error(`Namespace ${namespace} not found`);
     }
 
@@ -102,7 +102,7 @@ describe("Layout SEO Metadata Builder Suite", () => {
 
     // Confirms that execution falls back seamlessly to code constants defaults without breaking
     expect(metadata.description).toBe(
-      "Premium whitelabel e-commerce platform storefront.",
+      "Explore our exclusive catalog of authentic products with fast international shipping and secure checkout.",
     );
 
     expect(errorSpy).toHaveBeenCalledWith(

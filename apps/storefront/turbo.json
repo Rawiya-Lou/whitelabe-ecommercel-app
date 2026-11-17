@@ -14,10 +14,15 @@
         "SANITY_API_DATASET",
         "SANITY_API_VERSION"
       ],
-       "passThroughEnv": [
-        "NEXT_TELEMETRY_DISABLED",
-        "SKIP_ENV_VALIDATION"
-      ]
+      "passThroughEnv": ["NEXT_TELEMETRY_DISABLED", "SKIP_ENV_VALIDATION"]
+    },
+    "test:unit": {
+      "env": ["NEXT_PUBLIC_*"],
+      "passThroughEnv": ["SKIP_ENV_VALIDATION"]
+    },
+    "test:proxy": {
+      "env": ["NEXT_PUBLIC_*", "UPSTASH_REDIS_REST_*"],
+      "passThroughEnv": ["SKIP_ENV_VALIDATION"]
     }
   }
 }

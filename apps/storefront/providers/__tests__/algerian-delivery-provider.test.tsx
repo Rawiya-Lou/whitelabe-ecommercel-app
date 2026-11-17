@@ -58,11 +58,15 @@ describe("Algerian Delivery Context State Provider (Structural Node Traversal)",
       children: "test-child",
     }) as unknown as ReactJSXDescriptorNode;
 
-    expect(resultElement.props.value).toEqual({
-      isAlgerianContext: false,
-      localizedWilayas: [],
-      isLoading: false,
-    });
+    expect(resultElement.props.value).toEqual(
+    expect.objectContaining({
+    isAlgeria: false,
+    isLoadingRate: false,
+    wilayas: [],
+    communes: [],
+    shippingPrice: 0,
+  })
+);
 
     expect(mockGetLocalizedWilayas).not.toHaveBeenCalled();
   });

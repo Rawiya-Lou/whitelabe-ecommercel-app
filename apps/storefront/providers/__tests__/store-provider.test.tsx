@@ -12,6 +12,9 @@ const { mockGetMedusaRegionByCountry, mockHeaders } = vi.hoisted(() => {
   };
 });
 
+const mockCookieGet = vi.fn();
+
+
 vi.mock("next/headers", () => {
   return {
     headers: () => {
@@ -20,6 +23,9 @@ vi.mock("next/headers", () => {
         get: (key: string) => computedHeaders.get(key) ?? null,
       };
     },
+    cookies: vi.fn(async () => ({
+    get: mockCookieGet,
+  })),
   };
 });
 
@@ -40,6 +46,7 @@ interface ReactJSXDescriptorNode {
 describe("Medusa Server Store Context Provider (Architecture Suite)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockCookieGet.mockReturnValue(undefined)
   });
 
   it("should extract edge headers, query medusa regions, and yield correct prop configurations", async () => {

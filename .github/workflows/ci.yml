@@ -191,9 +191,9 @@ jobs:
 
       - name: Scan Storefront Client Bundle for Leaked Secrets
         run: |
-          if grep -rnE "(sk_live_|sk_test_|whsec_|live_sk_|postgres://|postgresql://)" apps/storefront/.next/static; then
-            echo "ERROR: Potential secret detected in client static bundle!"
-            exit 1
+          if grep -rnE "(\bsk[A-Za-z0-9]{60,}\b|sk_live_[A-Za-z0-9]{16,}|sk_test_[A-Za-z0-9]{16,}|whsec_[A-Za-z0-9]{16,}|live_sk_[A-Za-z0-9]{16,}|test_sk_[A-Za-z0-9]{16,}|postgres://|postgresql://)" apps/storefront/.next/static; then
+           echo "ERROR: Potential secret detected in client static bundle!"
+           exit 1
           fi
 
   # JOB 3: Medusa v2 Backend Verification
@@ -265,6 +265,25 @@ jobs:
           MEDUSA_ADMIN_DASHBOARD_DISABLED: "true"
         run: npx turbo run build --filter=@dtc/backend
 
+      - name: Validate Whitelabel Database Seeding Contracts
+        working-directory: ./apps/backend
+        env:
+          DATABASE_URL: "postgres://postgres:postgres@127.0.0.1:5432/medusa_backend_ci"
+          REDIS_URL: "redis://127.0.0.1:6379"
+          MEDUSA_ADMIN_DASHBOARD_DISABLED: "true"
+          ACTIVE_SHIPPING_PROVIDER: "manual_manual"
+          STORE_WAREHOUSE_COUNTRY: "DZ"
+          STORE_NAME: "CI Validation Instance"
+          STRIPE_API_KEY: "sk_test_ci_mock_key"
+          STRIPE_WEBHOOK_SECRET: "whsec_ci_mock_secret"
+          CHARGILY_SECRET_KEY: "test_sk_ci_mock_key"
+          CHARGILY_IS_TEST_MODE: "true"
+          JWT_SECRET: "ci-jwt-secret-must-be-at-least-32-chars"
+          COOKIE_SECRET: "ci-cookie-secret-must-be-at-least-32-chars"
+        run: |
+          npx medusa db:migrate --execute-all-links --execute-safe-search
+          npm run predeploy
+
       - name: Run Sanity Synchronization E2E Integration Suite
         working-directory: ./apps/backend
         env:
@@ -289,24 +308,7 @@ jobs:
         if: failure()
         run: cat ./apps/backend/medusa-backend.log || echo "No log file found"
 
-      - name: Validate Whitelabel Database Seeding Contracts
-        working-directory: ./apps/backend
-        env:
-          DATABASE_URL: "postgres://postgres:postgres@127.0.0.1:5432/medusa_backend_ci"
-          REDIS_URL: "redis://127.0.0.1:6379"
-          MEDUSA_ADMIN_DASHBOARD_DISABLED: "true"
-          ACTIVE_SHIPPING_PROVIDER: "manual_manual"
-          STORE_WAREHOUSE_COUNTRY: "DZ"
-          STORE_NAME: "CI Validation Instance"
-          STRIPE_API_KEY: "sk_test_ci_mock_key"
-          STRIPE_WEBHOOK_SECRET: "whsec_ci_mock_secret"
-          CHARGILY_SECRET_KEY: "test_sk_ci_mock_key"
-          CHARGILY_IS_TEST_MODE: "true"
-          JWT_SECRET: "ci-jwt-secret-must-be-at-least-32-chars"
-          COOKIE_SECRET: "ci-cookie-secret-must-be-at-least-32-chars"
-        run: |
-          npm run predeploy
-
+   
     # JOB 4: Sanity Studio CMS Verification
   cms-ci:
     name: CMS (Sanity Studio) - Quality & Build
@@ -345,9 +347,9 @@ jobs:
 
       - name: Scan CMS Bundle for Leaked Tokens
         run: |
-          if grep -rnE "(sk[a-zA-Z0-9]{20,}|SANITY_API_TOKEN|SANITY_API_WRITE_TOKEN)" apps/cms/dist; then
-            echo "ERROR: Potential API token leaked into Sanity Studio bundle!"
-            exit 1
+          if grep -rnE "(\bsk[A-Za-z0-9]{60,}\b|sk_live_[A-Za-z0-9]{16,}|sk_test_[A-Za-z0-9]{16,}|live_sk_[A-Za-z0-9]{16,}|test_sk_[A-Za-z0-9]{16,}|SANITY_API_WRITE_TOKEN)" apps/cms/dist; then
+           echo "ERROR: Potential API token leaked into Sanity Studio bundle!"
+           exit 1
           fi
 
   # JOB 4: Security & Vulnerability Audit

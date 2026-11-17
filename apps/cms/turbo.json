@@ -9,7 +9,12 @@
       "env": [
         "SANITY_STUDIO_*",
         "SANITY_PROJECT_ID",
-        "SANITY_DATASET"
+        "PROJECT_ID",
+        "SANITY_DATASET",
+        "SANITY_API_TOKEN",
+        "STOREFRONT_URL",
+        "PREVIEW_SECRET"
+
       ]
     }
   }

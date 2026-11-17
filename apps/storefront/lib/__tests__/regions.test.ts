@@ -72,9 +72,9 @@ describe("Medusa v2 Core Region Sync Matrix (regions.ts)", () => {
 
     expect(result?.id).toBe("reg_algeria");
     expect(result?.currency_code).toBe("dzd");
-    expect(medusaClient.store.region.list).toHaveBeenCalledWith({
-      fields: "id,name,currency_code,+countries",
-    });
+    expect(medusaClient.store.region.list).toHaveBeenCalledWith(
+     { fields: "id,name,currency_code,+countries,+payment_providers" },
+     { next: { tags: ["medusa-regions"] } });
   });
 
   it("should gracefully resolve to a default global matrix if the provided country token has no region mapping", async () => {
