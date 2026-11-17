@@ -38,6 +38,22 @@
           "enumItems": [],
           "mappedType": "integer"
         },
+        "mother_wilaya_code": {
+          "name": "mother_wilaya_code",
+          "type": "integer",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "integer"
+        },
         "wilaya_name_fr": {
           "name": "wilaya_name_fr",
           "type": "text",
@@ -97,7 +113,7 @@
           "length": null,
           "precision": null,
           "scale": null,
-          "default": "0",
+          "default": "400",
           "comment": null,
           "enumItems": [],
           "mappedType": "decimal"
@@ -113,7 +129,7 @@
           "length": null,
           "precision": null,
           "scale": null,
-          "default": "0",
+          "default": "700",
           "comment": null,
           "enumItems": [],
           "mappedType": "decimal"
@@ -177,7 +193,7 @@
           "length": null,
           "precision": null,
           "scale": null,
-          "default": "'{\"value\":\"0\",\"precision\":20}'",
+          "default": "'{\"value\":\"400\",\"precision\":20}'",
           "comment": null,
           "enumItems": [],
           "mappedType": "json"
@@ -193,7 +209,7 @@
           "length": null,
           "precision": null,
           "scale": null,
-          "default": "'{\"value\":\"0\",\"precision\":20}'",
+          "default": "'{\"value\":\"700\",\"precision\":20}'",
           "comment": null,
           "enumItems": [],
           "mappedType": "json"
@@ -321,6 +337,38 @@
         },
         "commune_name_fr": {
           "name": "commune_name_fr",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
+        "commune_name_ar": {
+          "name": "commune_name_ar",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "''",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
+        "commune_key": {
+          "name": "commune_key",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -483,6 +531,15 @@
       "name": "commune_override",
       "schema": "public",
       "indexes": [
+        {
+          "keyName": "IDX_commune_override_commune_key",
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false,
+          "expression": "CREATE INDEX IF NOT EXISTS \"IDX_commune_override_commune_key\" ON \"commune_override\" (\"commune_key\") WHERE deleted_at IS NULL"
+        },
         {
           "keyName": "IDX_commune_override_wilaya_rate_id",
           "columnNames": [],
