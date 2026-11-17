@@ -173,7 +173,7 @@ jobs:
           CHARGILY_IS_TEST_MODE: "true"
           LOG_LEVEL: error
         run: |
-          npx medusa db:migrate:ci
+          npm run predeploy
           npx medusa start > medusa-backend.log 2>&1 &
           npx wait-on http://127.0.0.1:9000/health --timeout 180000
       - name: Check Medusa Backend Logs (if previous step failed)
@@ -265,13 +265,16 @@ jobs:
           MEDUSA_ADMIN_DASHBOARD_DISABLED: "true"
         run: npx turbo run build --filter=@dtc/backend
 
-      - name: Validate Whitelabel Database Seeding Contracts
+      - name: Migrate & Validate Whitelabel Database Seeding Contracts
         working-directory: ./apps/backend
         env:
+          NODE_ENV: test
           DATABASE_URL: "postgres://postgres:postgres@127.0.0.1:5432/medusa_backend_ci"
           REDIS_URL: "redis://127.0.0.1:6379"
           MEDUSA_ADMIN_DASHBOARD_DISABLED: "true"
-          ACTIVE_SHIPPING_PROVIDER: "manual_manual"
+          SANITY_PROJECT_ID: "ci-placeholder"
+          SANITY_DATASET: "production"
+          SANITY_API_TOKEN: "ci_mock_sanity_token"
           STORE_WAREHOUSE_COUNTRY: "DZ"
           STORE_NAME: "CI Validation Instance"
           STRIPE_API_KEY: "sk_test_ci_mock_key"
@@ -280,10 +283,8 @@ jobs:
           CHARGILY_IS_TEST_MODE: "true"
           JWT_SECRET: "ci-jwt-secret-must-be-at-least-32-chars"
           COOKIE_SECRET: "ci-cookie-secret-must-be-at-least-32-chars"
-        run: |
-          npx medusa db:migrate --execute-all-links --execute-safe-search
-          npm run predeploy
-
+        run: npm run predeploy
+        
       - name: Run Sanity Synchronization E2E Integration Suite
         working-directory: ./apps/backend
         env:
