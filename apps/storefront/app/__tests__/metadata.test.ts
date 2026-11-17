@@ -1,113 +1,156 @@
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeEach,
-  afterEach,
-  type MockInstance,
-} from "vitest";
-import { generateMetadata } from "../[locale]/metadata";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { LOCALS } from "@/i18n/constants";
+
+const mockGetTranslations = vi.hoisted(() => vi.fn());
+const mockGetLocalizedSiteSeo = vi.hoisted(() => vi.fn());
+const mockUrlFor = vi.hoisted(() => vi.fn());
 
 vi.mock("next-intl/server", () => ({
-  getTranslations: vi.fn().mockImplementation(({ locale, namespace }) => {
-    // If namespace isn't "Metadata", simulate a failure to trigger the code's fallback logic
-    if (namespace !== "metadata") {
-      throw new Error(`Namespace ${namespace} not found`);
-    }
+  getTranslations: mockGetTranslations,
+}));
 
-    // Return a mocked translator function matching your storefront configuration
-    return (key: string) => {
-      const translations: Record<string, string> = {
-        siteName: `DTC Storefront (${locale})`,
-        defaultTitle: `Home Title (${locale})`,
-        defaultDescription: `SEO Description (${locale})`,
-      };
-      return translations[key] || "";
+vi.mock("@/lib/sanity/query", () => ({
+  getLocalizedSiteSeo: mockGetLocalizedSiteSeo,
+}));
+
+vi.mock("@/lib/sanity/images", () => ({
+  urlFor: mockUrlFor,
+}));
+
+import { generateMetadata } from "../[locale]/metadata";
+
+describe("Layout SEO Metadata Builder Suite (metadata.ts)", () => {
+  const makeImageBuilder = (url: string) => {
+    const builder = {
+      width: vi.fn().mockReturnThis(),
+      height: vi.fn().mockReturnThis(),
+      quality: vi.fn().mockReturnThis(),
+      url: vi.fn().mockReturnValue(url),
     };
-  }),
-}));
-
-vi.mock("@/i18n/routing", () => ({
-  routing: {
-    locales: ["en", "ar", "fr"],
-    defaultLocale: "en",
-  },
-}));
-
-describe("Layout SEO Metadata Builder Suite", () => {
-  let errorSpy: MockInstance;
-  let warnSpy: MockInstance;
+    return builder;
+  };
 
   beforeEach(() => {
-    errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    process.env.NEXT_PUBLIC_STOREFRONT_URL = "https://my-production-shop.com";
+    vi.clearAllMocks();
+    vi.unstubAllEnvs();
+    vi.stubEnv("NEXT_PUBLIC_STOREFRONT_URL", "https://shop.client.com");
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
-  it("should successfully build SEO configurations using translation namespaces", async () => {
-    // Layout parameters match the Next.js Promise requirement
-    const mockParams = Promise.resolve({ locale: "en" });
-
-    const metadata = await generateMetadata({ params: mockParams });
-
-    // Validate absolute base parameters and alternates logic rules
-    expect(metadata.metadataBase?.toString()).toBe(
-      "https://my-production-shop.com/",
-    );
-    expect(metadata.alternates?.canonical).toBe("/en");
-    expect(metadata.alternates?.languages).toEqual({
-      en: "/en",
-      ar: "/ar",
-      fr: "/fr",
+  it("successfully builds SEO configurations using Sanity CMS priority over translation namespaces", async () => {
+    mockGetLocalizedSiteSeo.mockResolvedValue({
+      siteName: "Client Luxury Store",
+      defaultTitle: "Client Hero Title",
+      defaultDescription: "Client CMS SEO description.",
+      ogImage: { asset: { _ref: "image-og" } },
+      favicon: { asset: { _ref: "image-fav" } },
     });
 
-    // Validate templates parameters mapping logic structures
+    mockGetTranslations.mockResolvedValue((key: string) => `i18n_${key}`);
+
+    const ogBuilder = makeImageBuilder("https://cdn.sanity.io/og-1200x630.jpg");
+    const fav64Builder = makeImageBuilder("https://cdn.sanity.io/fav-64.png");
+    const fav180Builder = makeImageBuilder("https://cdn.sanity.io/fav-180.png");
+
+    mockUrlFor
+      .mockReturnValueOnce(ogBuilder)
+      .mockReturnValueOnce(fav64Builder)
+      .mockReturnValueOnce(fav180Builder);
+
+    const metadata = await generateMetadata({
+      params: Promise.resolve({ locale: LOCALS.EN }),
+    });
+
+    expect(mockGetLocalizedSiteSeo).toHaveBeenCalledWith(LOCALS.EN);
+    expect(mockGetTranslations).toHaveBeenCalledWith({
+      locale: LOCALS.EN,
+      namespace: "metadata",
+    });
+
+    expect(metadata.metadataBase?.toString()).toBe("https://shop.client.com/");
     expect(metadata.title).toEqual({
-      template: "%s | DTC Storefront (en)",
-      default: "Home Title (en)",
+      template: "%s | Client Luxury Store",
+      default: "Client Hero Title",
     });
-
-    expect(metadata.description).toBe("SEO Description (en)");
-    expect(metadata.openGraph?.locale).toBe("en_US");
-  });
-
-  it("should output Algerian OpenGraph parameters when the locale is set to 'ar'", async () => {
-    const mockParams = Promise.resolve({ locale: "ar" });
-
-    const metadata = await generateMetadata({ params: mockParams });
-
-    expect(metadata.alternates?.canonical).toBe("/ar");
-    expect(metadata.openGraph?.locale).toBe("ar_DZ"); // Verifies your custom DZ localization
-    expect(metadata.title).toStrictEqual({
-      default: "Home Title (ar)",
-      template: "%s | DTC Storefront (ar)",
+    expect(metadata.description).toBe("Client CMS SEO description.");
+    expect(metadata.openGraph).toMatchObject({
+      siteName: "Client Luxury Store",
+      locale: "en_US",
+      images: [{ url: "https://cdn.sanity.io/og-1200x630.jpg", width: 1200, height: 630 }],
+    });
+    expect(metadata.icons).toEqual({
+      icon: [{ url: "https://cdn.sanity.io/fav-64.png" }],
+      shortcut: ["https://cdn.sanity.io/fav-64.png"],
+      apple: [{ url: "https://cdn.sanity.io/fav-180.png", sizes: "180x180" }],
     });
   });
 
-  it("should log warnings and revert back to fallback hardcoded dictionary objects if the namespace check crashes", async () => {
-    const nextIntl = await import("next-intl/server");
+  it("uses next-intl translations when Sanity SEO is unavailable and sets ar_DZ OpenGraph for 'ar'", async () => {
+    mockGetLocalizedSiteSeo.mockResolvedValue(null);
+    mockGetTranslations.mockImplementation(async ({ namespace }) => {
+      if (namespace !== "metadata") {
+        throw new Error(`Namespace ${namespace} not found`);
+      }
+      const dict: Record<string, string> = {
+        siteName: "متجر النخبة",
+        defaultTitle: "تشكيلة حصرية",
+        defaultDescription: "وصف مترجم من next-intl",
+      };
+      return (key: string) => dict[key];
+    });
 
-    // Force the internal next-intl mock translator function layer to fail
-    vi.mocked(nextIntl.getTranslations).mockRejectedValueOnce(
-      new Error("Translations database missing error connection reference"),
+    const metadata = await generateMetadata({
+      params: Promise.resolve({ locale: LOCALS.AR }),
+    });
+
+    expect(metadata.title).toEqual({
+      template: "%s | متجر النخبة",
+      default: "تشكيلة حصرية",
+    });
+    expect(metadata.description).toBe("وصف مترجم من next-intl");
+    expect(metadata.openGraph).toMatchObject({
+      locale: "ar_DZ",
+      url: "/ar",
+      images: [{ url: "https://shop.client.com/images/default-og.jpg" }],
+    });
+    expect(metadata.alternates).toEqual({
+      canonical: "/ar",
+      languages: {
+        en: "/en",
+        fr: "/fr",
+        ar: "/ar",
+      },
+    });
+  });
+
+  it("reverts seamlessly to hardcoded fallback dictionary when both Sanity and translations crash", async () => {
+    vi.stubEnv("NEXT_PUBLIC_STOREFRONT_URL", "");
+    vi.stubEnv("VERCEL_URL", "preview-branch.vercel.app");
+
+    mockGetLocalizedSiteSeo.mockRejectedValue(new Error("Sanity unreachable"));
+    mockGetTranslations.mockRejectedValue(new Error("Missing namespace"));
+
+    const metadata = await generateMetadata({
+      params: Promise.resolve({ locale: "unsupported-locale" }),
+    });
+
+    expect(metadata.metadataBase?.toString()).toBe(
+      "https://preview-branch.vercel.app/"
     );
-
-    const mockParams = Promise.resolve({ locale: "en" });
-    const metadata = await generateMetadata({ params: mockParams });
-
-    // Confirms that execution falls back seamlessly to code constants defaults without breaking
+    expect(metadata.title).toEqual({
+      template: "%s | Official Store",
+      default: "Curated Collections & Premium Essentials",
+    });
     expect(metadata.description).toBe(
-      "Explore our exclusive catalog of authentic products with fast international shipping and secure checkout.",
+      "Explore our exclusive catalog of authentic products with fast international shipping and secure checkout."
     );
-
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("[Metadata Error] Namespace missing for locale: en. Falling back."),
-      expect.any(Error)
-    );
+    expect(metadata.icons).toEqual({
+      icon: [{ url: "/favicon.ico" }],
+      shortcut: ["/favicon.ico"],
+      apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }],
+    });
   });
 });

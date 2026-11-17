@@ -1,84 +1,178 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { AlgerianDeliveryProvider } from "../algerian-delivery-provider";
-import { LocalizedGeographyNode } from "@/lib/wilayas";
 import { LOCALS } from "@/i18n/constants";
 
-const { mockGetLocalizedWilayas } = vi.hoisted(() => {
-  return {
-    mockGetLocalizedWilayas: vi.fn<() => Promise<LocalizedGeographyNode[]>>(),
-  };
-});
-
-vi.mock("../lib/wilayas", () => ({
-  __esModule: true,
-  getLocalizedWilayas: mockGetLocalizedWilayas,
+const hookState = vi.hoisted(() => ({
+  states: [] as unknown[],
+  setters: [] as ReturnType<typeof vi.fn>[],
+  index: 0,
+  effectCallback: null as null | (() => void | (() => void)),
+  contextValue: null as unknown,
 }));
 
 vi.mock("react", async () => {
-  const actualReact = await vi.importActual<typeof import("react")>("react");
+  const actual = await vi.importActual<typeof import("react")>("react");
   return {
-    ...actualReact,
-    // Safely simulate state array hook allocations without triggering runtime dispatcher exceptions
-    useState: (initialState: unknown) => {
-      const stateVal =
-        typeof initialState === "function" ? initialState() : initialState;
-      return [stateVal, vi.fn()];
+    ...actual,
+    default: {
+      ...actual,
+      createContext: actual.createContext,
     },
-    // Prevent background effect hook calculations from firing during pure descriptor evaluations
-    useEffect: vi.fn(),
-    // Allow useMemo to evaluate inline returns natively
-    useMemo: (factory: () => unknown) => factory(),
+    createContext: actual.createContext,
+    useState: (initial: unknown) => {
+      const idx = hookState.index++;
+      if (!(idx in hookState.states)) {
+        hookState.states[idx] = initial;
+        hookState.setters[idx] = vi.fn((val: unknown) => {
+          hookState.states[idx] = val;
+        });
+      }
+      return [hookState.states[idx], hookState.setters[idx]];
+    },
+    useMemo: (fn: () => unknown) => fn(),
+    useEffect: (fn: () => void | (() => void)) => {
+      hookState.effectCallback = fn;
+    },
+    useContext: () => hookState.contextValue,
   };
 });
 
-interface AlgerianDeliveryContextValue {
-  isAlgerianContext: boolean;
-  localizedWilayas: LocalizedGeographyNode[];
-  isLoading: boolean;
-}
+const mockGetLocalizedWilayas = vi.hoisted(() => vi.fn());
+const mockGetLocalizedCommunes = vi.hoisted(() => vi.fn());
+const mockFetchWilayaRate = vi.hoisted(() => vi.fn());
 
-interface ReactJSXDescriptorNode {
+vi.mock("../../lib/wilayas", () => ({
+  getLocalizedWilayas: mockGetLocalizedWilayas,
+  getLocalizedCommunes: mockGetLocalizedCommunes,
+}));
+
+vi.mock("@/lib/medusa/algerian-shipping", () => ({
+  fetchWilayaRate: mockFetchWilayaRate,
+}));
+
+import {
+  AlgerianDeliveryProvider,
+  useAlgerianDelivery,
+} from "../algerian-delivery-provider";
+
+interface ProviderElement {
   props: {
-    value: AlgerianDeliveryContextValue;
-    children: unknown;
+    value: {
+      isAlgeria: boolean;
+      wilayas: unknown[];
+      communes: unknown[];
+      selectedWilaya: number | null;
+      setSelectedWilaya: (code: number | null) => void;
+      selectedCommune: number | null;
+      setSelectedCommune: (code: number | null) => void;
+      isStopDesk: boolean;
+      setIsStopDesk: (stopDesk: boolean) => void;
+      activeRate: { wilayaCode: number; homePrice: number; deskPrice: number } | null;
+      shippingPrice: number;
+      isLoadingRate: boolean;
+    };
   };
 }
 
-describe("Algerian Delivery Context State Provider (Structural Node Traversal)", () => {
-  const mockLocale: `${LOCALS}` = LOCALS.EN;
-
+describe("AlgerianDeliveryProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    hookState.states = [];
+    hookState.setters = [];
+    hookState.index = 0;
+    hookState.effectCallback = null;
+    hookState.contextValue = null;
   });
 
-  it("should output correct provider context configurations if isAlgeriaRegion is false", async () => {
-    const resultElement = AlgerianDeliveryProvider({
-      locale: mockLocale,
+  it("outputs empty arrays and zero shippingPrice when isAlgeriaRegion is false", () => {
+    const element = AlgerianDeliveryProvider({
+      children: null,
+      locale: LOCALS.EN,
       isAlgeriaRegion: false,
-      children: "test-child",
-    }) as unknown as ReactJSXDescriptorNode;
-
-    expect(resultElement.props.value).toEqual(
-    expect.objectContaining({
-    isAlgeria: false,
-    isLoadingRate: false,
-    wilayas: [],
-    communes: [],
-    shippingPrice: 0,
-  })
-);
+    }) as unknown as ProviderElement;
 
     expect(mockGetLocalizedWilayas).not.toHaveBeenCalled();
+    expect(mockGetLocalizedCommunes).not.toHaveBeenCalled();
+    expect(element.props.value).toEqual({
+      isAlgeria: false,
+      wilayas: [],
+      communes: [],
+      selectedWilaya: 16,
+      setSelectedWilaya: expect.any(Function),
+      selectedCommune: null,
+      setSelectedCommune: hookState.setters[1],
+      isStopDesk: false,
+      setIsStopDesk: hookState.setters[2],
+      activeRate: null,
+      shippingPrice: 0,
+      isLoadingRate: false,
+    });
   });
 
-  it("should initialize loading true and activate algerian context flag if region context is active", async () => {
-    const resultElement = AlgerianDeliveryProvider({
-      locale: mockLocale,
-      isAlgeriaRegion: true,
-      children: "test-child",
-    }) as unknown as ReactJSXDescriptorNode;
+  it("loads localized wilayas/communes, sets isLoadingRate true before fetch resolves, and fetches rate", async () => {
+    mockGetLocalizedWilayas.mockReturnValue([{ code: 16, name: "الجزائر" }]);
+    mockGetLocalizedCommunes.mockReturnValue([{ code: 1601, name: "الجزائر الوسطى" }]);
+    mockFetchWilayaRate.mockResolvedValue({
+      wilayaCode: 16,
+      homePrice: 700,
+      deskPrice: 400,
+    });
 
-    expect(resultElement.props.value.isAlgerianContext).toBe(true);
-    expect(resultElement.props.value.isLoading).toBe(true);
+    const element = AlgerianDeliveryProvider({
+      children: null,
+      locale: LOCALS.AR,
+      isAlgeriaRegion: true,
+    }) as unknown as ProviderElement;
+
+    expect(mockGetLocalizedWilayas).toHaveBeenCalledWith(LOCALS.AR);
+    expect(mockGetLocalizedCommunes).toHaveBeenCalledWith(16, LOCALS.AR);
+    expect(element.props.value.isAlgeria).toBe(true);
+    expect(element.props.value.isLoadingRate).toBe(true);
+    expect(element.props.value.shippingPrice).toBe(0);
+
+    // Run effect and await rate resolution
+    const cleanup = hookState.effectCallback?.();
+    await vi.waitFor(() => {
+      expect(mockFetchWilayaRate).toHaveBeenCalledWith(16);
+      expect(hookState.setters[3]).toHaveBeenCalledWith({
+        wilayaCode: 16,
+        homePrice: 700,
+        deskPrice: 400,
+      });
+    });
+    if (typeof cleanup === "function") cleanup();
+  });
+
+  it("calculates home vs desk shippingPrice and resets selectedCommune when changing Wilaya", () => {
+    mockGetLocalizedWilayas.mockReturnValue([{ code: 16, name: "Alger" }]);
+    mockGetLocalizedCommunes.mockReturnValue([]);
+
+    // Pre-populate useState slots: [selectedWilaya, selectedCommune, isStopDesk, activeRate]
+    hookState.states = [
+      16,
+      1601,
+      true,
+      { wilayaCode: 16, homePrice: 700, deskPrice: 400 },
+    ];
+    hookState.setters = [vi.fn(), vi.fn(), vi.fn(), vi.fn()];
+
+    const element = AlgerianDeliveryProvider({
+      children: null,
+      locale: LOCALS.FR,
+      isAlgeriaRegion: true,
+    }) as unknown as ProviderElement;
+
+    expect(element.props.value.isLoadingRate).toBe(false);
+    expect(element.props.value.shippingPrice).toBe(400);
+
+    element.props.value.setSelectedWilaya(31);
+    expect(hookState.setters[0]).toHaveBeenCalledWith(31);
+    expect(hookState.setters[1]).toHaveBeenCalledWith(null);
+  });
+
+  it("throws when useAlgerianDelivery is called outside AlgerianDeliveryProvider", () => {
+    hookState.contextValue = null;
+    expect(() => useAlgerianDelivery()).toThrow(
+      "useAlgerianDelivery must be used within an AlgerianDeliveryProvider"
+    );
   });
 });

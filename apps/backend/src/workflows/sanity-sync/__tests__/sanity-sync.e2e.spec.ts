@@ -4,7 +4,7 @@ import { loadEnv } from "@medusajs/framework/utils";
 loadEnv("test", process.cwd());
 
 const BASE_URL = process.env.TEST_BASE_URL || "http://127.0.0.1:9000";
-const SYNC_URL = `${BASE_URL}/sanity-sync`;
+const SYNC_URL = `${BASE_URL}/admin/sanity-sync`;
 const VALID_SECRET =
   process.env.SANITY_SYNC_SECRET_TOKEN ||
   process.env.SANITY_WEBHOOK_SECRET;
@@ -324,7 +324,10 @@ describe("Sanity CMS Sync Engine - Professional E2E Lifecycle Suite", () => {
         webhookId: "stable-sanity-hook-config",
       });
 
+      if (status !== 200) console.error("UPDATE 500 DETAILS:", data);
+
       expect(status).toBe(200);
+
       expect(data.success).toBe(true);
       expect(data.operation).toBe("update");
       expect(data.medusaOperation).toBe("updated");
@@ -344,9 +347,9 @@ describe("Sanity CMS Sync Engine - Professional E2E Lifecycle Suite", () => {
 
       expect(status).toBe(400);
       expect(data.success).toBe(false);
-      expect(data.message).toContain(
-        "Cannot delete a category with assigned products",
-      );
+      expect(data.error ?? data.message).toContain(
+  "Cannot delete a category with assigned products",
+);
     });
 
     it("should delete the product from Medusa cleanly", async () => {

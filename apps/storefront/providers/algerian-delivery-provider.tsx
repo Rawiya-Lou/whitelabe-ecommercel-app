@@ -11,7 +11,8 @@ import { LOCALS } from "@/i18n/constants";
 import {
   getLocalizedWilayas,
   getLocalizedCommunes,
-  LocalizedGeographyNode,
+  LocalizedWilaya,
+  LocalizedCommune
 } from "../lib/wilayas";
 import {
   fetchWilayaRate,
@@ -20,8 +21,8 @@ import {
 
 interface AlgerianDeliveryContextType {
   isAlgeria: boolean;
-  wilayas: LocalizedGeographyNode[];
-  communes: LocalizedGeographyNode[];
+  wilayas: LocalizedWilaya[];
+  communes: LocalizedCommune[];
   selectedWilaya: number | null;
   setSelectedWilaya: (code: number | null) => void;
   selectedCommune: number | null;

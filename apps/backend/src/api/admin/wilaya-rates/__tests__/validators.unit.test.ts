@@ -31,6 +31,7 @@ describe("Admin Wilaya Rate Upsert Schema Validation", () => {
         {
           commune_name_fr: "Bousfer",
           commune_name_ar: "بوسفر",
+          commune_name_en: "Bousfer",
           home_delivery_price: 55000, // Premium route markup fee
           stop_desk_price: 35000,
           is_active: true,

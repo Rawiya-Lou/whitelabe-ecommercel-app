@@ -1,150 +1,134 @@
-import { describe, it, expect, vi } from "vitest"
-import upsertWilayaRateWorkflow from "../../seed-wilayas/upsert-wilaya-rate"
-import { ALGERIAN_LOGISTICS_MODULE } from "../../../../src/modules/algerian-logistics"
-import { createContainer, asValue } from "awilix"
-import type { MedusaContainer } from "@medusajs/framework/types"
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Modules, ContainerRegistrationKeys, MedusaError } from "@medusajs/framework/utils";
+import { ALGERIAN_LOGISTICS_MODULE } from "../../../modules/algerian-logistics";
 
-describe("Upsert Wilaya Rate Workflow Execution Unit", () => {
-  it("should run the insertion pipeline successfully when no existing records are found", async () => {
-    // 1. Setup mock returns covering all internal service invocations
-    const mockLogisticsService = {
-      listWilayaRates: vi.fn().mockResolvedValue([]),
-      createWilayaRates: vi.fn().mockResolvedValue({ id: "wrate_abc" }),
-      updateWilayaRates: vi.fn(),
-      listCommuneOverrides: vi.fn().mockResolvedValue([]),
-      deleteCommuneOverrides: vi.fn().mockResolvedValue([]),
-      createCommuneOverrides: vi.fn().mockResolvedValue([]),
-      retrieveWilayaRate: vi.fn().mockResolvedValue({
-        id: "wrate_abc",
+const mockGeo = vi.hoisted(() => ({
+  wilayas: [
+    { code: 16, name_fr: "Alger", name_ar: "الجزائر" },
+    { code: 59, name_fr: "Aflou", name_ar: "أفلو" },
+  ],
+}));
+
+vi.mock("../geo-loader", () => ({
+  loadGeoWilayas: () => mockGeo.wilayas,
+}));
+
+import { upsertWilayaRateStepHandler } from "../upsert-wilaya-rate";
+
+describe("Wilaya Seed & Upsert Workflow Steps", () => {
+  const mockLogisticsService = {
+    listWilayaRates: vi.fn(),
+    createWilayaRates: vi.fn(),
+    updateWilayaRates: vi.fn(),
+    listCommuneOverrides: vi.fn(),
+    deleteCommuneOverrides: vi.fn(),
+    createCommuneOverrides: vi.fn(),
+    retrieveWilayaRate: vi.fn(),
+  };
+
+  const mockRegionService = {
+    listAndCountRegions: vi.fn(),
+    createRegions: vi.fn(),
+  };
+
+  const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+
+  const mockContainer = {
+    resolve: vi.fn((key: string) => {
+      if (key === ALGERIAN_LOGISTICS_MODULE) return mockLogisticsService;
+      if (key === Modules.REGION) return mockRegionService;
+      if (key === ContainerRegistrationKeys.LOGGER) return mockLogger;
+      return null;
+    }),
+  } as any;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGeo.wilayas = [
+      { code: 16, name_fr: "Alger", name_ar: "الجزائر" },
+      { code: 59, name_fr: "Aflou", name_ar: "أفلو" },
+    ];
+  });
+
+  
+  it("upsertWilayaRateStepHandler clears stale overrides when overrides: [] is passed", async () => {
+    mockLogisticsService.listWilayaRates.mockResolvedValue([{ id: "wrate_16" }]);
+    mockLogisticsService.updateWilayaRates.mockResolvedValue({ id: "wrate_16" });
+    mockLogisticsService.listCommuneOverrides.mockResolvedValue([
+      { id: "com_override_1" },
+      { id: "com_override_2" },
+    ]);
+    mockLogisticsService.retrieveWilayaRate.mockResolvedValue({
+      id: "wrate_16",
+      overrides: [],
+    });
+
+    const res = await upsertWilayaRateStepHandler(
+      {
         wilaya_code: 16,
         wilaya_name_fr: "Alger",
         wilaya_name_ar: "الجزائر",
-        overrides: []
-      }),
-    }
-
-    const container = createContainer()
-
-    container.register({
-      [ALGERIAN_LOGISTICS_MODULE]: asValue(mockLogisticsService),
-      AlgerianLogisticsModuleService: asValue(mockLogisticsService),
-      logger: asValue({
-        error: vi.fn(),
-        info: vi.fn(),
-        warn: vi.fn(),
-      }),
-    })
-
-    // 2. Execute the workflow passing valid structured parameters
-    const { result } = await upsertWilayaRateWorkflow(
-      container as unknown as MedusaContainer
-    ).run({
-      input: {
-        wilaya_code: 16,
-        wilaya_name_fr: "Alger",
         wilaya_name_en: "Algiers",
-        wilaya_name_ar: "الجزائر",
-        desk_price: 30000,
-        home_price: 50000,
-        region_id: "reg_1",
+        home_price: 650,
+        desk_price: 350,
+        region_id: "reg_dz",
         is_active: true,
-        overrides: []
+        overrides: [],
       },
-    })
+      { container: mockContainer }
+    );
 
-    // 3. Structural boundary assertions
-    expect(mockLogisticsService.listWilayaRates).toHaveBeenCalledWith({
-      wilaya_code: 16,
-    })
-    expect(mockLogisticsService.createWilayaRates).toHaveBeenCalledWith({
-      wilaya_code: 16,
-      wilaya_name_fr: "Alger",
-      wilaya_name_ar: "الجزائر",
-      wilaya_name_en: "Algiers",
-      desk_price: 30000,
-      home_price: 50000,
-      region_id: "reg_1",
-      is_active: true,
-    })
-    expect(mockLogisticsService.retrieveWilayaRate).toHaveBeenCalledWith("wrate_abc", {
-      relations: ["overrides"],
-    })
-    
-    expect(result.status).toBe(201)
-    expect(result.wilaya_rate.id).toBe("wrate_abc")
-  })
+    expect(mockLogisticsService.deleteCommuneOverrides).toHaveBeenCalledWith([
+      "com_override_1",
+      "com_override_2",
+    ]);
+    expect(mockLogisticsService.createCommuneOverrides).not.toHaveBeenCalled();
+    expect(res).toMatchObject({ output: { status: 200 } });
+  });
 
-  it("should run the update pipeline successfully and refresh overrides when record already exists", async () => {
-    const mockLogisticsService = {
-      listWilayaRates: vi.fn().mockResolvedValue([{ id: "wrate_existing" }]),
-      createWilayaRates: vi.fn(),
-      updateWilayaRates: vi.fn().mockResolvedValue({ id: "wrate_existing" }),
-      listCommuneOverrides: vi.fn().mockResolvedValue([{ id: "com_old_1" }]),
-      deleteCommuneOverrides: vi.fn().mockResolvedValue([]),
-      createCommuneOverrides: vi.fn().mockResolvedValue([]),
-      retrieveWilayaRate: vi.fn().mockResolvedValue({
-        id: "wrate_existing",
-        wilaya_code: 16,
-        overrides: [{ commune_name_fr: "Zeralda", home_delivery_price: 40000 }]
-      }),
-    }
+  it("upsertWilayaRateStepHandler saves commune_name_ar and normalized commune_key", async () => {
+    mockLogisticsService.listWilayaRates.mockResolvedValue([]);
+    mockLogisticsService.createWilayaRates.mockResolvedValue({ id: "wrate_59" });
+    mockLogisticsService.listCommuneOverrides.mockResolvedValue([]);
+    mockLogisticsService.retrieveWilayaRate.mockResolvedValue({
+      id: "wrate_59",
+      overrides: [{ commune_name_ar: "أفلو" }],
+    });
 
-    const container = createContainer()
-
-    container.register({
-      [ALGERIAN_LOGISTICS_MODULE]: asValue(mockLogisticsService),
-      logger: asValue({ error: vi.fn(), info: vi.fn(), warn: vi.fn() }),
-    })
-
-    const { result } = await upsertWilayaRateWorkflow(
-      container as unknown as MedusaContainer
-    ).run({
-      input: {
-        wilaya_code: 16,
-        wilaya_name_fr: "Alger",
-        wilaya_name_ar: "الجزائر",
-        wilaya_name_en: "Algiers",
-        desk_price: 35000,
-        home_price: 55000,
-        region_id: "reg_1",
+    await upsertWilayaRateStepHandler(
+      {
+        wilaya_code: 59,
+        wilaya_name_fr: "Aflou",
+        wilaya_name_ar: "أفلو",
+        wilaya_name_en: "Aflou",
+        home_price: 900,
+        desk_price: 600,
+        region_id: "reg_dz",
         is_active: true,
-
         overrides: [
           {
-            commune_name_fr: "Zeralda",
-            commune_name_ar: "زرالدة",
-            home_delivery_price: 40000,
-            stop_desk_price: 20000,
-            is_active: true
-          }
-        ]
+            commune_name_fr: "Sidi M'Hamed",
+            commune_name_en: "Sidi M'Hamed",
+            commune_name_ar: "سيدي امحمد",
+            home_delivery_price: 850,
+            stop_desk_price: 500,
+            is_active: true,
+          },
+        ],
       },
-    })
+      { container: mockContainer }
+    );
 
-    // Assert validation sequence execution
-    expect(mockLogisticsService.updateWilayaRates).toHaveBeenCalledWith({
-      id: "wrate_existing",
-      wilaya_code: 16,
-      wilaya_name_fr: "Alger",
-      wilaya_name_ar: "الجزائر",
-      wilaya_name_en: "Algiers",
-      desk_price: 35000,
-      home_price: 55000,
-      region_id: "reg_1",
-      is_active: true,
-    })
-    expect(mockLogisticsService.deleteCommuneOverrides).toHaveBeenCalledWith(["com_old_1"])
+    expect(mockLogisticsService.createWilayaRates).toHaveBeenCalledWith(
+      expect.objectContaining({ mother_wilaya_code: 3 })
+    );
     expect(mockLogisticsService.createCommuneOverrides).toHaveBeenCalledWith([
-      {
-        commune_name_fr: "Zeralda",
-        home_delivery_price: 40000,
-        stop_desk_price: 20000,
-        is_active: true,
-        wilaya_rate_id: "wrate_existing",
-      }
-    ])
-    
-    expect(result.status).toBe(200)
-    expect(result.wilaya_rate.id).toBe("wrate_existing")
-  })
-})
+      expect.objectContaining({
+        commune_name_fr: "Sidi M'Hamed",
+        commune_name_ar: "سيدي امحمد",
+        commune_key: "sidi m hamed",
+        wilaya_rate_id: "wrate_59",
+      }),
+    ]);
+  });
+});

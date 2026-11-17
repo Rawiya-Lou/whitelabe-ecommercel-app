@@ -1,4 +1,4 @@
-import dz from "geoalgeria";
+import { getGeoWilayas, getGeoCommunesByWilaya } from "./geo-data";
 import { env } from "@/app/env.mjs";
 import { LOCALS } from "@/i18n/constants";
 
@@ -116,7 +116,7 @@ export function getLocalizedWilayas(
   }
 
   // Static fallback (e.g., if backend rates haven't loaded yet)
-  const rawWilayas = Array.isArray(dz?.wilayas) ? dz.wilayas : [];
+  const rawWilayas = Array.isArray(getGeoWilayas()) ? getGeoWilayas() : [];
   return rawWilayas
     .map((w) => ({
       code: Number(w.code),
@@ -140,9 +140,7 @@ export function getLocalizedCommunes(
   locale: string,
   wilayaRate?: Pick<LocalizedWilaya, "home_price" | "desk_price" | "overrides">
 ): LocalizedCommune[] {
-  const rawCommunes = dz?.getCommunesByWilaya
-    ? dz.getCommunesByWilaya(Number(wilayaCode))
-    : [];
+  const rawCommunes = getGeoCommunesByWilaya(Number(wilayaCode));
 
   if (!Array.isArray(rawCommunes)) return [];
 
@@ -161,7 +159,7 @@ export function getLocalizedCommunes(
       const name_ar = override?.commune_name_ar || c.name_ar;
 
       return {
-        code: String(c.code_commune),
+        code: String(c.code),
         name: pickLocalizedName({ name_fr: c.name_fr, name_ar }, locale),
         name_fr: c.name_fr,
         name_ar,

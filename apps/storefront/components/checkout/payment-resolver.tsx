@@ -8,6 +8,20 @@ import { useTranslations } from "next-intl";
 Role: Automatically renders Chargily (Edahabia/CIB) or Stripe (Cards/Apple Pay) based on what Medusa returned for the cart's region.
 */
 
+/*
+And from apps/storefront during checkout submission, pass the selected Wilaya & Commune directly when attaching the shipping method to the cart:
+
+await medusaClient.store.cart.addShippingMethod(cartId, {
+  option_id: selectedOptionId, // "Home Delivery" or "Stop-Desk" option ID
+  data: {
+    wilaya_code: selectedWilayaCode,
+    commune_name_fr: selectedCommune.name_fr,
+    delivery_mode: isStopDesk ? "desk" : "home",
+  },
+});
+
+*/
+
 interface PaymentResolverProps {
   paymentProviders: Array<{ id: string }>;
   selectedProviderId: string;

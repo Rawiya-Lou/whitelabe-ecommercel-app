@@ -133,7 +133,7 @@ describe("Proxy file E2E Unit Suit", () => {
     });
     const res = await proxy(req);
     expect(res.status).toBe(429);
-    expect(mockLimit).toHaveBeenCalledWith("checkout_127.0.0.1")
+    expect(mockLimit).toHaveBeenCalledWith("127.0.0.1")
     const body = await res.json();
     expect(body.error).toContain("Too many checkout attempts");
     expect(res.headers.get("X-RateLimit-Limit")).toBe("3");

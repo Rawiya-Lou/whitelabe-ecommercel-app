@@ -42,6 +42,7 @@ describe("UniversalSyncLock", () => {
   it("uses exclusive memory leases and token-checked release in development", async () => {
     vi.resetModules();
     vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("REDIS_URL", "");
     vi.stubEnv("REDIS_URL", "redis://configured-remote-host:6379");
     const { syncLock } = await import("../sync-lock.js");
 

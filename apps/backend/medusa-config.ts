@@ -1,12 +1,8 @@
 import path from "path";
-import {
-  loadEnv,
-  defineConfig,
-  MedusaError,
-} from "@medusajs/framework/utils";
+import { loadEnv, defineConfig, MedusaError } from "@medusajs/framework/utils";
 import { getBackendPublicUrl } from "./src/utils/backend-url";
 import { getSanityConfig } from "./src/modules/sanity-sync/config";
-
+import { ALGERIAN_LOGISTICS_MODULE } from "./src/modules/algerian-logistics";
 const envDir = __dirname.includes(".medusa")
   ? path.resolve(__dirname, "../..")
   : process.cwd();
@@ -30,10 +26,8 @@ const isHttps = (backendPublicUrl || "").startsWith("https://");
 const requestedSameSite =
   (process.env.COOKIE_SAME_SITE as "lax" | "strict" | "none") || "lax";
 
-
 const dbUrl = process.env.DATABASE_URL || "";
-const isLocalDb =
-  dbUrl.includes("localhost") || dbUrl.includes("127.0.0.1");
+const isLocalDb = dbUrl.includes("localhost") || dbUrl.includes("127.0.0.1");
 
 const {
   projectId: sanityProjectId,
@@ -142,31 +136,31 @@ const productionRedisModules = shouldValidateRuntime
     ];
 
 const fileProvider = process.env.S3_BUCKET
-    ? {
-        resolve: "@medusajs/medusa/file-s3",
-        id: "s3",
-        options: {
-          file_url: process.env.S3_FILE_URL,
-          access_key_id: process.env.S3_ACCESS_KEY_ID,
-          secret_access_key: process.env.S3_SECRET_ACCESS_KEY,
-          region: process.env.S3_REGION,
-          bucket: process.env.S3_BUCKET,
-          endpoint: process.env.S3_ENDPOINT,
-          acl: process.env.S3_ACL === "public-read" ? "public-read" : false,
-          additional_client_config:
-            process.env.S3_FORCE_PATH_STYLE === "true"
-              ? { forcePathStyle: true }
-              : undefined,
-        },
-      }
-    : {
-        resolve: "@medusajs/medusa/file-local",
-        id: "local",
-        options: {
-          upload_dir: "static",
-          backend_url: `${backendPublicUrl || "http://localhost:9000"}/static`,
-        },
-      };
+  ? {
+      resolve: "@medusajs/medusa/file-s3",
+      id: "s3",
+      options: {
+        file_url: process.env.S3_FILE_URL,
+        access_key_id: process.env.S3_ACCESS_KEY_ID,
+        secret_access_key: process.env.S3_SECRET_ACCESS_KEY,
+        region: process.env.S3_REGION,
+        bucket: process.env.S3_BUCKET,
+        endpoint: process.env.S3_ENDPOINT,
+        acl: process.env.S3_ACL === "public-read" ? "public-read" : false,
+        additional_client_config:
+          process.env.S3_FORCE_PATH_STYLE === "true"
+            ? { forcePathStyle: true }
+            : undefined,
+      },
+    }
+  : {
+      resolve: "@medusajs/medusa/file-local",
+      id: "local",
+      options: {
+        upload_dir: "static",
+        backend_url: `${backendPublicUrl || "http://localhost:9000"}/static`,
+      },
+    };
 
 export default defineConfig({
   projectConfig: {
@@ -178,23 +172,23 @@ export default defineConfig({
     redisUrl,
     workerMode,
     databaseDriverOptions: isLocalDb
-  ? {
-      connection: { ssl: false },
-    }
-  : {
-      connection: {
-        ssl: { rejectUnauthorized: true },
-      },
-      pool: {
-        min: 2,
-        max: workerMode === "worker" ? 5 : 10,
-        idleTimeoutMillis: 30000,
-        acquireTimeoutMillis: 60000,
-      },
-      keepAlive: true,
-      statement_timeout: 60000,
-      idle_in_transaction_session_timeout: 60000,
-    },
+      ? {
+          connection: { ssl: false },
+        }
+      : {
+          connection: {
+            ssl: { rejectUnauthorized: true },
+          },
+          pool: {
+            min: 2,
+            max: workerMode === "worker" ? 5 : 10,
+            idleTimeoutMillis: 30000,
+            acquireTimeoutMillis: 60000,
+          },
+          keepAlive: true,
+          statement_timeout: 60000,
+          idle_in_transaction_session_timeout: 60000,
+        },
     cookieOptions: {
       sameSite: isHttps ? requestedSameSite : "lax",
       secure: isProd && isHttps,
@@ -259,18 +253,23 @@ export default defineConfig({
       },
     },
     {
+      resolve: "./src/modules/algerian-logistics",
+    },
+    {
       resolve: "@medusajs/medusa/fulfillment",
+      dependencies: [ALGERIAN_LOGISTICS_MODULE],
       options: {
         providers: [
           {
             resolve: "@medusajs/medusa/fulfillment-manual",
-            id: "manual_manual",
+            id: "manual",
+          },
+          {
+            resolve: "./src/modules/algerian-fulfillment",
+            id: "algerian",
           },
         ],
       },
-    },
-    {
-      resolve: "./src/modules/algerian-logistics",
     },
   ],
 

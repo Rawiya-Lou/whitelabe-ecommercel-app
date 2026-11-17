@@ -14,24 +14,31 @@ vi.mock("@/app/env.mjs", () => ({
   },
 }));
 
-vi.mock("geoalgeria", () => ({
-  default: {
-    wilayas: [
-      { code: 16, name_fr: "Alger", name_ar: "الجزائر" },
-      { code: 59, name_fr: "Aflou", name_ar: "أفلو" },
-    ],
-    getCommunesByWilaya: vi.fn((code: number) => {
-      if (code === 16) {
-        return [
-          { code: "1601", name_fr: "Alger Centre", name_ar: "الجزائر الوسطى" },
-          { code: "1602", name_fr: "Zéralda", name_ar: "زرالدة" },
-        ];
-      }
-      return [];
-    }),
-  },
+vi.mock("../geo-data", () => ({
+  getGeoWilayas: vi.fn(() => [
+    { code: 16, name_fr: "Alger", name_ar: "الجزائر" },
+    { code: 59, name_fr: "Aflou", name_ar: "أفلو" },
+  ]),
+  getGeoCommunesByWilaya: vi.fn((code: number) => {
+    if (code === 16) {
+      return [
+        {
+          code: "1601",
+          wilaya_code: 16,
+          name_fr: "Alger Centre",
+          name_ar: "الجزائر الوسطى",
+        },
+        {
+          code: "1602",
+          wilaya_code: 16,
+          name_fr: "Zéralda",
+          name_ar: "زرالدة",
+        },
+      ];
+    }
+    return [];
+  }),
 }));
-
 describe("Algerian Wilayas & Commune Pricing Layer", () => {
   beforeEach(() => {
     vi.clearAllMocks();

@@ -1262,10 +1262,22 @@ export async function POST(
         undefined,
       categories: resolvedCategoryPayloads,
       images: mappedAllImages,
-      variantOptions: Array.isArray(incomingCmsProduct.variantOptions)
+       variantOptions: Array.isArray(incomingCmsProduct.variantOptions)
         ? incomingCmsProduct.variantOptions
         : [],
       variants: mappedVariants as any,
+        syncFieldsPresent: {
+        tags:
+          Array.isArray(incomingCmsProduct.tags) ||
+          Array.isArray(rawPayload.tags),
+        images:
+          Array.isArray(incomingCmsProduct.images) ||
+          Array.isArray(rawPayload.productData?.images) ||
+          Array.isArray(rawPayload.images),
+        variants:
+          Array.isArray(incomingCmsProduct.variants) ||
+          Array.isArray(incomingCmsProduct.variantOptions),
+      },
       manage_inventory: Boolean(incomingCmsProduct.manage_inventory ?? true),
       allow_backorder: Boolean(incomingCmsProduct.allow_backorder ?? false),
     };

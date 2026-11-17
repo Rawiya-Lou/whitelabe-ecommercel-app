@@ -12,6 +12,7 @@ import {
   MOTHER_WILAYA_CODES,
   WILAYA_ENGLISH_NAMES,
 } from "../../modules/algerian-logistics/constants";
+import { loadGeoWilayas } from "./geo-loader";
 
 export async function seedWilayasStepHandler(
   _input: Record<string, unknown>,
@@ -39,7 +40,7 @@ export async function seedWilayasStepHandler(
   }
 
   const targetRegionId = regionsList[0].id;
-  const geoWilayas = dz.wilayas;
+  const geoWilayas = loadGeoWilayas();
 
   if (!Array.isArray(geoWilayas) || geoWilayas.length === 0) {
     throw new MedusaError(
@@ -65,8 +66,8 @@ export async function seedWilayasStepHandler(
       wilaya_name_en: WILAYA_ENGLISH_NAMES[code] || w.name_fr,
       wilaya_name_fr: w.name_fr,
       wilaya_name_ar: w.name_ar,
-      home_price: 700, // 700 DZD (major units)
-      desk_price: 400, // 400 DZD (major units)
+      home_price: 700,
+      desk_price: 400,
       is_active: true,
       region_id: targetRegionId,
     });

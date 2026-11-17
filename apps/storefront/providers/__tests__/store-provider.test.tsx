@@ -1,106 +1,124 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { MedusaStoreProvider } from "../store-provider";
-import { StoreContextType } from "../medusa-store-context";
-import { MedusaRegion } from "@/lib/medusa/regions";
+import React from "react";
 import { LOCALS } from "@/i18n/constants";
 
-// 1. Declare clean type-safe return contracts for hoisted tracking functions
-const { mockGetMedusaRegionByCountry, mockHeaders } = vi.hoisted(() => {
-  return {
-    mockGetMedusaRegionByCountry: vi.fn<() => Promise<MedusaRegion>>(),
-    mockHeaders: vi.fn<() => Map<string, string>>(),
-  };
-});
+const mockCookiesGet = vi.hoisted(() => vi.fn());
+const mockGetMedusaRegionByCountry = vi.hoisted(() => vi.fn());
+const mockGetAllMedusaRegions = vi.hoisted(() => vi.fn());
+const mockUseContext = vi.hoisted(() => vi.fn());
 
-const mockCookieGet = vi.fn();
-
-
-vi.mock("next/headers", () => {
-  return {
-    headers: () => {
-      const computedHeaders = mockHeaders();
-      return {
-        get: (key: string) => computedHeaders.get(key) ?? null,
-      };
-    },
-    cookies: vi.fn(async () => ({
-    get: mockCookieGet,
+vi.mock("next/headers", () => ({
+  cookies: vi.fn(async () => ({
+    get: mockCookiesGet,
   })),
-  };
-});
+}));
 
-vi.mock("@/lib/medusa/regions", () => {
+vi.mock("@/lib/medusa/regions", () => ({
+  getMedusaRegionByCountry: mockGetMedusaRegionByCountry,
+  getAllMedusaRegions: mockGetAllMedusaRegions,
+}));
+
+vi.mock("react", async () => {
+  const actual = await vi.importActual<typeof import("react")>("react");
   return {
-    getMedusaRegionByCountry: mockGetMedusaRegionByCountry,
+    ...actual,
+    useContext: mockUseContext,
   };
 });
 
-// Explicit type contract to cast the evaluated Server Component tree node elements safely
-interface ReactJSXDescriptorNode {
-  props: {
-    value: StoreContextType;
-    children: unknown;
-  };
-}
+import { MedusaStoreProvider } from "../store-provider";
+import { useMedusaStoreContext } from "../medusa-store-context";
 
-describe("Medusa Server Store Context Provider (Architecture Suite)", () => {
+describe("MedusaStoreProvider & useMedusaStoreContext", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockCookieGet.mockReturnValue(undefined)
+    mockUseContext.mockReturnValue(null);
   });
 
-  it("should extract edge headers, query medusa regions, and yield correct prop configurations", async () => {
-    const headersMap = new Map<string, string>([["x-user-country", "DZ"]]);
-    mockHeaders.mockReturnValueOnce(headersMap);
-
-    const mockRegionPayload: MedusaRegion = {
-      id: "reg_dz_algeria",
-      name: "Algeria Store Region",
+  it("reads _medusa_country cookie, resolves DZ region, and flags isAlgeria true", async () => {
+    mockCookiesGet.mockReturnValue({ value: "DZ" });
+    const dzRegion = {
+      id: "reg_dz",
+      name: "Algeria",
       currency_code: "dzd",
       countries: [{ iso_2: "dz" }],
     };
-    mockGetMedusaRegionByCountry.mockResolvedValueOnce(mockRegionPayload);
+    const usRegion = {
+      id: "reg_us",
+      name: "North America",
+      currency_code: "usd",
+      countries: [{ iso_2: "us" }],
+    };
 
-    // Invoke the Server Component to parse out raw object elements
-    const resultElement = (await MedusaStoreProvider({
+    mockGetMedusaRegionByCountry.mockResolvedValue(dzRegion);
+    mockGetAllMedusaRegions.mockResolvedValue([dzRegion, usRegion]);
+
+    const element = (await MedusaStoreProvider({
+      children: <div>Store Child</div>,
       locale: LOCALS.AR,
-      children: "test-child",
-    })) as unknown as ReactJSXDescriptorNode;
+    })) as React.ReactElement<{ value: unknown }>;
 
-    // Direct Node Traversal: Assert against the type-safe props value tree object natively
-    expect(resultElement.props.value).toEqual({
-      region: mockRegionPayload,
+    expect(mockCookiesGet).toHaveBeenCalledWith("_medusa_country");
+    expect(mockGetMedusaRegionByCountry).toHaveBeenCalledWith("dz");
+    expect(element.props.value).toEqual({
+      region: dzRegion,
+      regions: [dzRegion, usRegion],
       locale: LOCALS.AR,
       currencyCode: "DZD",
+      isAlgeria: true,
     });
-
-    expect(mockGetMedusaRegionByCountry).toHaveBeenCalledWith("DZ");
   });
 
-
-  it("should fallback gracefully to Algeria country constraints if the header token is missing", async () => {
-    const emptyHeadersMap = new Map<string, string>();
-    mockHeaders.mockReturnValueOnce(emptyHeadersMap);
-
-    const mockRegionPayload: MedusaRegion = {
-      id: "reg_fallback_dz",
-      name: "Default Algeria Zone",
-      currency_code: "dzd",
-      countries: [{ iso_2: "dz" }],
+  it("defaults country to 'us' when _medusa_country cookie is absent", async () => {
+    mockCookiesGet.mockReturnValue(undefined);
+    const euRegion = {
+      id: "reg_eu",
+      name: "Europe",
+      currency_code: "eur",
+      countries: [{ iso_2: "fr" }],
     };
-    mockGetMedusaRegionByCountry.mockResolvedValueOnce(mockRegionPayload);
 
-    const resultElement = (await MedusaStoreProvider({
-      locale: LOCALS.EN,
-      children: "test-child",
-    })) as unknown as ReactJSXDescriptorNode;
+    mockGetMedusaRegionByCountry.mockResolvedValue(null);
+    mockGetAllMedusaRegions.mockResolvedValue([euRegion]);
 
-    expect(resultElement.props.value).toEqual({
-      region: mockRegionPayload,
-      locale: LOCALS.EN,
-      currencyCode: "DZD",
+    const element = (await MedusaStoreProvider({
+      children: null,
+      locale: LOCALS.FR,
+    })) as React.ReactElement<{ value: unknown }>;
+
+    expect(mockGetMedusaRegionByCountry).toHaveBeenCalledWith("us");
+    expect(element.props.value).toEqual({
+      region: euRegion,
+      regions: [euRegion],
+      locale: LOCALS.FR,
+      currencyCode: "EUR",
+      isAlgeria: false,
     });
+  });
 
-    expect(mockGetMedusaRegionByCountry).toHaveBeenCalledWith("DZ");
+  it("falls back safely to null region and 'USD' when backend returns no regions", async () => {
+    mockCookiesGet.mockReturnValue(undefined);
+    mockGetMedusaRegionByCountry.mockResolvedValue(null);
+    mockGetAllMedusaRegions.mockResolvedValue([]);
+
+    const element = (await MedusaStoreProvider({
+      children: null,
+      locale: LOCALS.EN,
+    })) as React.ReactElement<{ value: unknown }>;
+
+    expect(element.props.value).toEqual({
+      region: null,
+      regions: [],
+      locale: LOCALS.EN,
+      currencyCode: "USD",
+      isAlgeria: false,
+    });
+  });
+
+  it("throws when useMedusaStoreContext is called outside MedusaStoreProvider", () => {
+    mockUseContext.mockReturnValue(null);
+    expect(() => useMedusaStoreContext()).toThrow(
+      "useMedusaStoreContext must be used within a MedusaStoreProvider"
+    );
   });
 });

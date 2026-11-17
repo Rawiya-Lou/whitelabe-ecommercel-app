@@ -1,46 +1,60 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { MockedFunction } from "vitest";
-import fs from "fs";
-import path from "path";
-import { MedusaError, ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils";
+import {
+  MedusaError,
+  ContainerRegistrationKeys,
+  Modules,
+} from "@medusajs/framework/utils";
 import type { Logger, MedusaContainer } from "@medusajs/framework/types";
 import { StepResponse } from "@medusajs/framework/workflows-sdk";
+import { ALGERIAN_LOGISTICS_MODULE } from "../../../modules/algerian-logistics";
+
+const mockGeo = vi.hoisted(() => ({
+  wilayas: [
+    { code: "1", name: "Adrar", name_ar: "أدرار", name_fr: "Adrar" },
+    { code: "59", name: "Aflou", name_ar: "أفلو", name_fr: "Aflou" },
+  ],
+}));
+
+vi.mock("../geo-loader", () => ({
+  loadGeoWilayas: () => mockGeo.wilayas,
+}));
+
 import { seedWilayasStepHandler } from "../steps";
 
-vi.mock("fs");
-vi.mock("path");
-
-interface QueryGraphPayload {
-  data: Array<{ id: string }>;
-}
-
-interface MockModuleService {
-  createWilayaRates: MockedFunction<(payload: unknown[]) => Promise<Array<{ id: string }>>>;
+interface MockLogisticsService {
+  listWilayaRates: MockedFunction<
+    (filters: { wilaya_code: number }) => Promise<Array<{ id: string }>>
+  >;
+  createWilayaRates: MockedFunction<
+    (payload: Record<string, unknown>) => Promise<{ id: string }>
+  >;
 }
 
 interface MockRegionService {
-  listAndCountRegions: MockedFunction<(filters: Record<string, unknown>) => Promise<[Array<{ id: string }>, number]>>;
-  createRegions: MockedFunction<(payload: Record<string, unknown>) => Promise<Array<{ id: string }>>>;
+  listAndCountRegions: MockedFunction<
+    (
+      filters: Record<string, unknown>
+    ) => Promise<[Array<{ id: string }>, number]>
+  >;
+  createRegions: MockedFunction<
+    (payload: Record<string, unknown>) => Promise<Array<{ id: string }>>
+  >;
 }
 
 describe("seedWilayasStepHandler", () => {
-  let mockDbService: { graph: MockedFunction<() => Promise<QueryGraphPayload>> };
   let mockLogger: Logger;
-  let mockModuleService: MockModuleService;
+  let mockModuleService: MockLogisticsService;
   let mockRegionService: MockRegionService;
   let mockContainer: MedusaContainer;
-
-  const mockWilayasData = [
-    { code: "1", name: "Adrar", name_ar: "أدرار", name_fr: "Adrar" },
-    { code: "2", name: "Chlef", name_ar: "الشلف", name_fr: "Chlef" },
-  ];
 
   beforeEach(() => {
     vi.clearAllMocks();
 
-    mockDbService = {
-      graph: vi.fn().mockResolvedValue({ data: [] }),
-    };
+    mockGeo.wilayas = [
+      { code: "1", name: "Adrar", name_ar: "أدرار", name_fr: "Adrar" },
+      { code: "59", name: "Aflou", name_ar: "أفلو", name_fr: "Aflou" },
+    ];
 
     mockLogger = {
       error: vi.fn(),
@@ -61,45 +75,67 @@ describe("seedWilayasStepHandler", () => {
       http: vi.fn(),
     };
 
-    // Updated to match the array response return type of the generated MedusaService method
     mockModuleService = {
-      createWilayaRates: vi.fn().mockResolvedValue([{ id: "rec_123" }]),
+      listWilayaRates: vi.fn().mockResolvedValue([]),
+      createWilayaRates: vi.fn().mockResolvedValue({ id: "wrate_123" }),
     };
 
-    // Corrected to accurately return a tuple structure [regionsArray, count]
     mockRegionService = {
-      listAndCountRegions: vi.fn().mockResolvedValue([[], 0]), 
+      listAndCountRegions: vi.fn().mockResolvedValue([[], 0]),
       createRegions: vi.fn().mockResolvedValue([{ id: "reg_dzd_123" }]),
     };
 
     mockContainer = {
       resolve: vi.fn().mockImplementation((key: string) => {
-        if (key === ContainerRegistrationKeys.QUERY) return mockDbService;
         if (key === ContainerRegistrationKeys.LOGGER) return mockLogger;
-        if (key === Modules.REGION || key === "regionService") return mockRegionService;
-        return mockModuleService; 
+        if (key === Modules.REGION || key === "regionService") {
+          return mockRegionService;
+        }
+        if (key === ALGERIAN_LOGISTICS_MODULE) return mockModuleService;
+        return mockModuleService;
       }),
     } as unknown as MedusaContainer;
-
-    const mockedPathJoin = path.join as MockedFunction<typeof path.join>;
-    const mockedFsExistsSync = fs.existsSync as MockedFunction<typeof fs.existsSync>;
-    const mockedFsReadFileSync = fs.readFileSync as MockedFunction<typeof fs.readFileSync>;
-
-    mockedPathJoin.mockReturnValue("/mocked/path/wilayas.json");
-    mockedFsExistsSync.mockReturnValue(true);
-    mockedFsReadFileSync.mockReturnValue(JSON.stringify(mockWilayasData));
   });
 
-  it("successfully seeds new wilayas when they do not exist", async () => {
-    const response = await seedWilayasStepHandler({}, { container: mockContainer });
+  it("creates DZD region if missing and seeds new wilayas with major DZD units & mother codes", async () => {
+    const response = await seedWilayasStepHandler(
+      {},
+      { container: mockContainer }
+    );
 
-    expect(fs.existsSync).toHaveBeenCalled();
-    expect(fs.readFileSync).toHaveBeenCalled();
     expect(mockRegionService.listAndCountRegions).toHaveBeenCalledTimes(1);
-    expect(mockRegionService.createRegions).toHaveBeenCalledTimes(1);
-    expect(mockDbService.graph).toHaveBeenCalledTimes(2);
+    expect(mockRegionService.createRegions).toHaveBeenCalledWith({
+      name: "Algeria",
+      currency_code: "dzd",
+      countries: ["dz"],
+    });
+    expect(mockModuleService.listWilayaRates).toHaveBeenCalledTimes(2);
     expect(mockModuleService.createWilayaRates).toHaveBeenCalledTimes(2);
-    
+
+    expect(mockModuleService.createWilayaRates).toHaveBeenNthCalledWith(1, {
+      wilaya_code: 1,
+      mother_wilaya_code: null,
+      wilaya_name_en: "Adrar",
+      wilaya_name_fr: "Adrar",
+      wilaya_name_ar: "أدرار",
+      home_price: 700,
+      desk_price: 400,
+      is_active: true,
+      region_id: "reg_dzd_123",
+    });
+
+    expect(mockModuleService.createWilayaRates).toHaveBeenNthCalledWith(2, {
+      wilaya_code: 59,
+      mother_wilaya_code: 3,
+      wilaya_name_en: "Aflou",
+      wilaya_name_fr: "Aflou",
+      wilaya_name_ar: "أفلو",
+      home_price: 700,
+      desk_price: 400,
+      is_active: true,
+      region_id: "reg_dzd_123",
+    });
+
     expect(response).toBeInstanceOf(StepResponse);
     expect(response.output).toEqual({
       success: true,
@@ -108,13 +144,21 @@ describe("seedWilayasStepHandler", () => {
     expect(mockLogger.info).toHaveBeenCalled();
   });
 
-  it("skips creation if the wilaya already exists in the database", async () => {
-    mockDbService.graph
-      .mockResolvedValueOnce({ data: [{ id: "existing_1" }] })
-      .mockResolvedValueOnce({ data: [] });
+  it("skips creation if a wilaya already exists in the database", async () => {
+    mockRegionService.listAndCountRegions.mockResolvedValue([
+      [{ id: "reg_dzd_existing" }],
+      1,
+    ]);
+    mockModuleService.listWilayaRates
+      .mockResolvedValueOnce([{ id: "existing_1" }])
+      .mockResolvedValueOnce([]);
 
-    const response = await seedWilayasStepHandler({}, { container: mockContainer });
+    const response = await seedWilayasStepHandler(
+      {},
+      { container: mockContainer }
+    );
 
+    expect(mockRegionService.createRegions).not.toHaveBeenCalled();
     expect(mockModuleService.createWilayaRates).toHaveBeenCalledTimes(1);
     expect(response.output).toEqual({
       success: true,
@@ -122,29 +166,21 @@ describe("seedWilayasStepHandler", () => {
     });
   });
 
-  it("returns failure step response when data file does not exist", async () => {
-    const mockedFsExistsSync = fs.existsSync as MockedFunction<typeof fs.existsSync>;
-    mockedFsExistsSync.mockReturnValue(false);
+  it("throws MedusaError loudly when geoalgeria dataset is empty", async () => {
+    mockGeo.wilayas = [];
 
-    const response = await seedWilayasStepHandler({}, { container: mockContainer });
-
-    expect(mockLogger.error).toHaveBeenCalled();
-    expect(response.output).toEqual({
-      success: false,
-      count: 0,
-    });
+    await expect(
+      seedWilayasStepHandler({}, { container: mockContainer })
+    ).rejects.toThrow(MedusaError);
   });
 
-  it("handles unexpected runtime crashes gracefully and logs MedusaError", async () => {
-    const dbError = new MedusaError(MedusaError.Types.DB_ERROR, "Database connection failed");
-    mockDbService.graph.mockRejectedValue(dbError);
+  it("propagates database errors instead of swallowing them", async () => {
+    mockModuleService.listWilayaRates.mockRejectedValue(
+      new MedusaError(MedusaError.Types.DB_ERROR, "Database connection failed")
+    );
 
-    const response = await seedWilayasStepHandler({}, { container: mockContainer });
-
-    expect(mockLogger.error).toHaveBeenCalled();
-    expect(response.output).toEqual({
-      success: false,
-      count: 0,
-    });
+    await expect(
+      seedWilayasStepHandler({}, { container: mockContainer })
+    ).rejects.toThrow("Database connection failed");
   });
 });
